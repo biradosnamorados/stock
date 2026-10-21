@@ -1,81 +1,86 @@
-import { useState } from 'react';
-import { useAuth, AuthProvider } from './lib/auth';
-import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import Products from './pages/Products';
-import Categories from './pages/Categories';
-import Suppliers from './pages/Suppliers';
-import Stock from './pages/Stock';
-import TechnicalSheets from './pages/TechnicalSheets';
-import Orders from './pages/Orders';
-import Receptions from './pages/Receptions';
-import SalesImport from './pages/SalesImport';
-import Alerts from './pages/Alerts';
-import ProductHistory from './pages/ProductHistory';
-import Users from './pages/Users';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './contexts/AuthContext';
+import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
+import Login from './pages/Login';
+import PinLogin from './pages/PinLogin';
+import PasswordReset from './pages/PasswordReset';
+import Dashboard from './pages/Dashboard';
+import Production from './pages/Production';
+import Packaging from './pages/Packaging';
+import Stock from './pages/Stock';
+import InternalOrders from './pages/InternalOrders';
+import PurchaseOrders from './pages/PurchaseOrders';
+import GoodsReceipts from './pages/GoodsReceipts';
+import Scanner from './pages/Scanner';
+import QRScanner from './pages/QRScanner';
+import Products from './pages/Products';
+import Suppliers from './pages/Suppliers';
+import Users from './pages/Users';
+import SMTPSettings from './pages/SMTPSettings';
+import PriceAnalysis from './pages/PriceAnalysis';
+import Import from './pages/Import';
+import Recipes from './pages/Recipes';
+import StockCounts from './pages/StockCounts';
+import Haccp from './pages/Haccp';
+import MandatoryTasks from './pages/mandatory-tasks/MandatoryTasks';
+import AccessProfiles from './pages/access-profiles/AccessProfiles';
+import Register from './pages/Register';
+import UpdatePassword from './pages/UpdatePassword';
+import PendingRegistrations from './pages/PendingRegistrations';
 
-function AppContent() {
-  const { user, loading, profile } = useAuth();
-  const [currentPage, setCurrentPage] = useState('dashboard');
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-center">
-          <div className="w-16 h-16 bg-gradient-to-br from-[#F20519] to-[#048ABF] rounded-xl animate-pulse mx-auto mb-4" />
-          <p className="text-slate-600">A carregar...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <Login />;
-  }
-
-  const renderPage = () => {
-    switch (currentPage) {
-      case 'dashboard':
-        return <Dashboard />;
-      case 'products':
-        return profile?.role === 'admin' ? <Products /> : <Dashboard />;
-      case 'categories':
-        return profile?.role === 'admin' ? <Categories /> : <Dashboard />;
-      case 'suppliers':
-        return <Suppliers />;
-      case 'stock':
-        return <Stock />;
-      case 'technical-sheets':
-        return <TechnicalSheets />;
-      case 'orders':
-        return <Orders />;
-      case 'receptions':
-        return <Receptions />;
-      case 'sales-import':
-        return <SalesImport />;
-      case 'alerts':
-        return <Alerts />;
-      case 'product-history':
-        return profile?.role === 'admin' ? <ProductHistory /> : <Dashboard />;
-      case 'users':
-        return profile?.role === 'admin' ? <Users /> : <Dashboard />;
-      default:
-        return <Dashboard />;
-    }
-  };
-
+function App() {
   return (
-    <Layout currentPage={currentPage} onNavigate={setCurrentPage}>
-      {renderPage()}
-    </Layout>
+    <BrowserRouter>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/pin-login" element={<PinLogin />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/update-password" element={<UpdatePassword />} />
+          <Route
+            path="/password-reset"
+            element={
+              <ProtectedRoute>
+                <PasswordReset />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <Layout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<Dashboard />} />
+            <Route path="production" element={<Production />} />
+            <Route path="packaging" element={<Packaging />} />
+            <Route path="stock" element={<Stock />} />
+            <Route path="internal-orders" element={<InternalOrders />} />
+            <Route path="purchase-orders" element={<PurchaseOrders />} />
+            <Route path="goods-receipts" element={<GoodsReceipts />} />
+            <Route path="scanner" element={<Scanner />} />
+            <Route path="qr-scanner" element={<QRScanner />} />
+            <Route path="price-analysis" element={<PriceAnalysis />} />
+            <Route path="products" element={<Products />} />
+            <Route path="suppliers" element={<Suppliers />} />
+            <Route path="import" element={<Import />} />
+            <Route path="users" element={<Users />} />
+            <Route path="access-profiles" element={<AccessProfiles />} />
+            <Route path="smtp-settings" element={<SMTPSettings />} />
+            <Route path="recipes" element={<Recipes />} />
+            <Route path="stock-counts" element={<StockCounts />} />
+            <Route path="haccp" element={<Haccp />} />
+            <Route path="mandatory-tasks" element={<MandatoryTasks />} />
+            <Route path="pending-registrations" element={<PendingRegistrations />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
 
-export default function App() {
-  return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
-  );
-}
+export default App;

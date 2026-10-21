@@ -1,415 +1,235 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { useAuth } from '../lib/auth';
-import { Users, Plus, Edit2, Trash2, Search, Mail, Phone } from 'lucide-react';
-import type { Database } from '../lib/database.types';
+import { useAuth } from '../contexts/AuthContext';
+import { Building2, Plus, CreditCard as Edit, Trash2, MapPin, Users } from 'lucide-react';
+import SupplierForm from '../components/SupplierForm';
 
-type Supplier = Database['public']['Tables']['suppliers']['Row'];
-type Store = Database['public']['Tables']['stores']['Row'];
-type SupplierStore = Database['public']['Tables']['supplier_stores']['Row'];
-
-interface SupplierWithStores extends Supplier {
-  stores: Store[];
+interface Supplier {
+  id: string;
+  code: string;
+  name: string;
+  type: string;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  contact_person: string | null;
+  active: boolean;
+  unit_count?: number;
+  product_count?: number;
 }
 
 export default function Suppliers() {
   const { profile } = useAuth();
-  const [suppliers, setSuppliers] = useState<SupplierWithStores[]>([]);
-  const [stores, setStores] = useState<Store[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [showModal, setShowModal] = useState(false);
-  const [editingSupplier, setEditingSupplier] = useState<SupplierWithStores | null>(null);
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    selectedStoreIds: [] as string[],
-  });
+  const [showForm, setShowForm] = useState(false);
+  const [editingSupplierId, setEditingSupplierId] = useState<string | undefined>();
 
   useEffect(() => {
-    loadData();
+    if (profile?.unit_id || profile?.role === 'Admin') {
+      loadSuppliers();
+    }
   }, [profile]);
 
-  const loadData = async () => {
+  const loadSuppliers = async () => {
+    if (!profile?.unit_id && profile?.role !== 'Admin') return;
+
     setLoading(true);
-    try {
-      const storesRes = await supabase.from('stores').select('*').order('name');
-      if (storesRes.data) setStores(storesRes.data);
 
-      const suppliersRes = await supabase
-        .from('suppliers')
-        .select('*')
-        .order('name');
+    const { data: suppliersData, error } = await supabase
+      .from('suppliers')
+      .select(`
+        *,
+        supplier_units(count),
+        supplier_products(count)
+      `)
+      .order('name');
 
-      if (suppliersRes.data) {
-        const supplierIds = suppliersRes.data.map(s => s.id);
-
-        const supplierStoresRes = await supabase
-          .from('supplier_stores')
-          .select('supplier_id, store_id')
-          .in('supplier_id', supplierIds);
-
-        const suppliersWithStores: SupplierWithStores[] = suppliersRes.data.map(supplier => {
-          const supplierStoreLinks = supplierStoresRes.data?.filter(
-            ss => ss.supplier_id === supplier.id
-          ) || [];
-
-          const supplierStores = supplierStoreLinks
-            .map(ss => storesRes.data?.find(s => s.id === ss.store_id))
-            .filter((s): s is Store => s !== undefined);
-
-          return {
-            ...supplier,
-            stores: supplierStores,
-          };
-        });
-
-        if (profile?.role === 'store_user' && profile.store_id) {
-          const filteredSuppliers = suppliersWithStores.filter(supplier =>
-            supplier.stores.some(s => s.id === profile.store_id)
-          );
-          setSuppliers(filteredSuppliers);
-        } else {
-          setSuppliers(suppliersWithStores);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading data:', error);
-    } finally {
-      setLoading(false);
+    if (error) {
+      console.error('Erro ao carregar fornecedores:', error);
+      alert('Erro ao carregar fornecedores: ' + error.message);
+    } else if (suppliersData) {
+      setSuppliers(suppliersData.map(s => ({
+        ...s,
+        unit_count: s.supplier_units?.[0]?.count || 0,
+        product_count: s.supplier_products?.[0]?.count || 0
+      })));
     }
-  };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      if (formData.selectedStoreIds.length === 0) {
-        alert('Selecione pelo menos uma loja');
-        return;
-      }
-
-      if (editingSupplier) {
-        const { error: updateError } = await supabase
-          .from('suppliers')
-          .update({
-            name: formData.name,
-            email: formData.email || null,
-            phone: formData.phone || null,
-          })
-          .eq('id', editingSupplier.id);
-
-        if (updateError) throw updateError;
-
-        await supabase
-          .from('supplier_stores')
-          .delete()
-          .eq('supplier_id', editingSupplier.id);
-
-        const supplierStoreInserts = formData.selectedStoreIds.map(storeId => ({
-          supplier_id: editingSupplier.id,
-          store_id: storeId,
-        }));
-
-        const { error: insertError } = await supabase
-          .from('supplier_stores')
-          .insert(supplierStoreInserts);
-
-        if (insertError) throw insertError;
-      } else {
-        const { data: newSupplier, error: insertError } = await supabase
-          .from('suppliers')
-          .insert({
-            name: formData.name,
-            email: formData.email || null,
-            phone: formData.phone || null,
-          })
-          .select()
-          .single();
-
-        if (insertError) throw insertError;
-
-        const supplierStoreInserts = formData.selectedStoreIds.map(storeId => ({
-          supplier_id: newSupplier.id,
-          store_id: storeId,
-        }));
-
-        const { error: linkError } = await supabase
-          .from('supplier_stores')
-          .insert(supplierStoreInserts);
-
-        if (linkError) throw linkError;
-      }
-
-      setShowModal(false);
-      setEditingSupplier(null);
-      setFormData({ name: '', email: '', phone: '', selectedStoreIds: [] });
-      loadData();
-    } catch (error) {
-      console.error('Error saving supplier:', error);
-      alert('Erro ao guardar fornecedor');
-    }
-  };
-
-  const handleEdit = async (supplier: SupplierWithStores) => {
-    setEditingSupplier(supplier);
-    setFormData({
-      name: supplier.name,
-      email: supplier.email || '',
-      phone: supplier.phone || '',
-      selectedStoreIds: supplier.stores.map(s => s.id),
-    });
-    setShowModal(true);
+    setLoading(false);
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Tem a certeza que deseja eliminar este fornecedor?')) return;
+    const { data: purchaseOrders } = await supabase
+      .from('purchase_orders')
+      .select('id')
+      .eq('supplier_id', id)
+      .limit(1);
 
-    try {
-      const { error } = await supabase.from('suppliers').delete().eq('id', id);
-      if (error) throw error;
-      loadData();
-    } catch (error) {
-      console.error('Error deleting supplier:', error);
-      alert('Erro ao eliminar fornecedor');
+    const { data: goodsReceipts } = await supabase
+      .from('goods_receipts')
+      .select('id')
+      .eq('supplier_id', id)
+      .limit(1);
+
+    let confirmMessage = 'Tem a certeza que deseja eliminar este fornecedor?';
+
+    if ((purchaseOrders && purchaseOrders.length > 0) || (goodsReceipts && goodsReceipts.length > 0)) {
+      confirmMessage = 'ATENÇÃO: Este fornecedor tem encomendas de compra e/ou receções associadas. Ao eliminar o fornecedor, todos os registos relacionados serão também eliminados. Esta ação não pode ser revertida. Deseja continuar?';
+    }
+
+    if (!confirm(confirmMessage)) return;
+
+    const { error } = await supabase
+      .from('suppliers')
+      .delete()
+      .eq('id', id);
+
+    if (!error) {
+      alert('Fornecedor eliminado com sucesso!');
+      loadSuppliers();
+    } else {
+      alert('Erro ao eliminar fornecedor: ' + error.message);
     }
   };
 
-  const toggleStoreSelection = (storeId: string) => {
-    setFormData(prev => ({
-      ...prev,
-      selectedStoreIds: prev.selectedStoreIds.includes(storeId)
-        ? prev.selectedStoreIds.filter(id => id !== storeId)
-        : [...prev.selectedStoreIds, storeId],
-    }));
+  const handleEdit = (id: string) => {
+    setEditingSupplierId(id);
+    setShowForm(true);
   };
 
-  const filteredSuppliers = suppliers.filter((supplier) =>
-    supplier.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const getStoreNames = (stores: Store[]) => {
-    if (stores.length === 0) return '-';
-    return stores.map(s => s.name).join(', ');
+  const handleCloseForm = () => {
+    setShowForm(false);
+    setEditingSupplierId(undefined);
   };
+
+  const handleSuccess = () => {
+    loadSuppliers();
+    handleCloseForm();
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-slate-600">A carregar...</div>
+      </div>
+    );
+  }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-gradient-to-br from-[#038C5A] to-[#048ABF] rounded-xl">
-            <Users className="w-6 h-6 text-white" />
-          </div>
-          <h1 className="text-2xl font-bold text-slate-800">Fornecedores</h1>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-800">Fornecedores</h1>
+          <p className="text-slate-600 mt-1">Gerir fornecedores, unidades e produtos</p>
         </div>
         <button
-          onClick={() => {
-            setEditingSupplier(null);
-            const defaultStoreIds = profile?.role === 'store_user' && profile.store_id
-              ? [profile.store_id]
-              : [];
-            setFormData({ name: '', email: '', phone: '', selectedStoreIds: defaultStoreIds });
-            setShowModal(true);
-          }}
-          className="flex items-center gap-2 bg-gradient-to-r from-[#038C5A] to-[#048ABF] text-white px-4 py-2 rounded-lg hover:shadow-lg transition"
+          onClick={() => setShowForm(true)}
+          className="flex items-center space-x-2 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition"
         >
           <Plus className="w-5 h-5" />
-          Novo Fornecedor
+          <span>Novo Fornecedor</span>
         </button>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-4 border-b border-slate-200">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Pesquisar fornecedores..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#048ABF]"
-            />
-          </div>
-        </div>
-
-        {loading ? (
-          <div className="p-8 text-center text-slate-600">A carregar...</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="text-left px-6 py-3 text-sm font-semibold text-slate-700">
-                    Nome
-                  </th>
-                  <th className="text-left px-6 py-3 text-sm font-semibold text-slate-700">
-                    Email
-                  </th>
-                  <th className="text-left px-6 py-3 text-sm font-semibold text-slate-700">
-                    Telefone
-                  </th>
-                  <th className="text-left px-6 py-3 text-sm font-semibold text-slate-700">
-                    Lojas
-                  </th>
-                  <th className="text-right px-6 py-3 text-sm font-semibold text-slate-700">
-                    Ações
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredSuppliers.map((supplier) => (
-                  <tr key={supplier.id} className="border-b border-slate-100 hover:bg-slate-50">
-                    <td className="px-6 py-4 text-slate-800">{supplier.name}</td>
-                    <td className="px-6 py-4">
-                      {supplier.email ? (
-                        <div className="flex items-center gap-2 text-slate-600">
-                          <Mail className="w-4 h-4" />
-                          {supplier.email}
-                        </div>
-                      ) : (
-                        <span className="text-slate-400">-</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      {supplier.phone ? (
-                        <div className="flex items-center gap-2 text-slate-600">
-                          <Phone className="w-4 h-4" />
-                          {supplier.phone}
-                        </div>
-                      ) : (
-                        <span className="text-slate-400">-</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex gap-1">
-                        {supplier.stores.map(store => (
-                          <span
-                            key={store.id}
-                            className="px-2 py-1 bg-gradient-to-r from-[#038C5A] to-[#048ABF] text-white text-xs rounded-full"
-                          >
-                            {store.name}
-                          </span>
-                        ))}
-                        {supplier.stores.length === 0 && (
-                          <span className="text-slate-400">-</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() => handleEdit(supplier)}
-                          className="p-2 hover:bg-slate-200 rounded-lg transition"
-                        >
-                          <Edit2 className="w-4 h-4 text-slate-600" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(supplier.id)}
-                          className="p-2 hover:bg-red-100 rounded-lg transition"
-                        >
-                          <Trash2 className="w-4 h-4 text-red-600" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-            <div className="p-6 border-b border-slate-200">
-              <h2 className="text-xl font-bold text-slate-800">
-                {editingSupplier ? 'Editar Fornecedor' : 'Novo Fornecedor'}
-              </h2>
-            </div>
-
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Nome
-                </label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  required
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#048ABF]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Email
-                </label>
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#048ABF]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Telefone
-                </label>
-                <input
-                  type="tel"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#048ABF]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Lojas
-                </label>
-                <div className="space-y-2">
-                  {stores.map((store) => (
-                    <label
-                      key={store.id}
-                      className="flex items-center gap-3 p-3 border border-slate-300 rounded-lg cursor-pointer hover:bg-slate-50 transition"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={formData.selectedStoreIds.includes(store.id)}
-                        onChange={() => toggleStoreSelection(store.id)}
-                        disabled={profile?.role === 'store_user' && profile.store_id !== store.id}
-                        className="w-5 h-5 text-[#048ABF] border-slate-300 rounded focus:ring-[#048ABF]"
-                      />
-                      <span className="text-slate-700">{store.name}</span>
-                    </label>
-                  ))}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {suppliers.map((supplier) => (
+          <div key={supplier.id} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 hover:shadow-md transition">
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                  <Building2 className="w-6 h-6 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800">{supplier.name}</h3>
+                  <p className="text-sm text-slate-500">{supplier.code}</p>
                 </div>
               </div>
+              <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                supplier.active
+                  ? 'bg-green-100 text-green-700'
+                  : 'bg-slate-100 text-slate-600'
+              }`}>
+                {supplier.active ? 'Ativo' : 'Inativo'}
+              </span>
+            </div>
 
-              <div className="flex gap-3 pt-4">
+            <div className="space-y-2 mb-4">
+              <div className="flex items-center text-sm text-slate-600">
+                <span className="font-medium w-20">Tipo:</span>
+                <span className="capitalize">{supplier.type === 'external' ? 'Externo' : 'Interno'}</span>
+              </div>
+              {supplier.email && (
+                <div className="flex items-center text-sm text-slate-600">
+                  <span className="font-medium w-20">Email:</span>
+                  <span className="truncate">{supplier.email}</span>
+                </div>
+              )}
+              {supplier.phone && (
+                <div className="flex items-center text-sm text-slate-600">
+                  <span className="font-medium w-20">Tel:</span>
+                  <span>{supplier.phone}</span>
+                </div>
+              )}
+              {supplier.contact_person && (
+                <div className="flex items-center text-sm text-slate-600">
+                  <span className="font-medium w-20">Contacto:</span>
+                  <span>{supplier.contact_person}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+              <div className="flex items-center space-x-4 text-sm">
+                <div className="flex items-center space-x-1 text-slate-600">
+                  <MapPin className="w-4 h-4" />
+                  <span>{supplier.unit_count} unidades</span>
+                </div>
+                <div className="flex items-center space-x-1 text-slate-600">
+                  <Users className="w-4 h-4" />
+                  <span>{supplier.product_count} produtos</span>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
                 <button
-                  type="button"
-                  onClick={() => {
-                    setShowModal(false);
-                    setEditingSupplier(null);
-                  }}
-                  className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 transition"
+                  onClick={() => handleEdit(supplier.id)}
+                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
                 >
-                  Cancelar
+                  <Edit className="w-4 h-4" />
                 </button>
                 <button
-                  type="submit"
-                  className="flex-1 px-4 py-2 bg-gradient-to-r from-[#038C5A] to-[#048ABF] text-white rounded-lg hover:shadow-lg transition"
+                  onClick={() => handleDelete(supplier.id)}
+                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
                 >
-                  {editingSupplier ? 'Guardar' : 'Criar'}
+                  <Trash2 className="w-4 h-4" />
                 </button>
               </div>
-            </form>
+            </div>
           </div>
+        ))}
+      </div>
+
+      {suppliers.length === 0 && (
+        <div className="text-center py-12">
+          <Building2 className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-slate-600 mb-2">Nenhum fornecedor</h3>
+          <p className="text-slate-500 mb-6">Comece por criar o primeiro fornecedor</p>
+          <button
+            onClick={() => setShowForm(true)}
+            className="inline-flex items-center space-x-2 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition"
+          >
+            <Plus className="w-5 h-5" />
+            <span>Criar Fornecedor</span>
+          </button>
         </div>
+      )}
+
+      {showForm && (
+        <SupplierForm
+          supplierId={editingSupplierId}
+          onClose={handleCloseForm}
+          onSuccess={handleSuccess}
+        />
       )}
     </div>
   );

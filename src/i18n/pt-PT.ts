@@ -1,0 +1,27 @@
+export const translations = {
+  common: {
+    loading: 'A carregar',
+    save: 'Guardar',
+    cancel: 'Cancelar',
+    edit: 'Editar',
+    delete: 'Eliminar',
+    create: 'Criar',
+    search: 'Pesquisar',
+    filter: 'Filtrar',
+    yes: 'Sim',
+    no: 'Não',
+    active: 'Ativo',
+    inactive: 'Inativo',
+    status: 'Estado',
+    actions: 'Ações',
+    name: 'Nome',
+    code: 'Código',
+    date: 'Data',
+    notes: 'Notas',
+  },
+  validation: {
+    required: 'Campo obrigatório',
+    passwordLength: 'A palavra-passe deve ter pelo menos 6 caracteres',
+    passwordMismatch: 'As palavras-passe não coincidem',
+  },
+};
