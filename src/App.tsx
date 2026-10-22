@@ -28,6 +28,8 @@ import AccessProfiles from './pages/access-profiles/AccessProfiles';
 import Register from './pages/Register';
 import UpdatePassword from './pages/UpdatePassword';
 import PendingRegistrations from './pages/PendingRegistrations';
+import CashClosing from './pages/CashClosing';
+import CashmaticSettings from './pages/CashmaticSettings';
 
 function App() {
   return (
@@ -75,6 +77,8 @@ function App() {
             <Route path="haccp" element={<Haccp />} />
             <Route path="mandatory-tasks" element={<MandatoryTasks />} />
             <Route path="pending-registrations" element={<PendingRegistrations />} />
+            <Route path="cash-closing" element={<CashClosing />} />
+            <Route path="cashmatic-settings" element={<CashmaticSettings />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

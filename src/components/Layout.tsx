@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { LayoutDashboard, Package, PackageOpen, Warehouse, ShoppingCart, Truck as TruckIcon, ClipboardList, QrCode, LogOut, Menu, X, Settings, Users, Building2, Mail, ChevronDown, ChevronRight, TrendingUp, Upload, ChefHat, ClipboardCheck, ShieldCheck, CheckSquare, Shield, UserPlus } from 'lucide-react';
+import { LayoutDashboard, Package, PackageOpen, Warehouse, ShoppingCart, Truck as TruckIcon, ClipboardList, QrCode, LogOut, Menu, X, Settings, Users, Building2, Mail, ChevronDown, ChevronRight, TrendingUp, Upload, ChefHat, ClipboardCheck, ShieldCheck, CheckSquare, Shield, UserPlus, Wallet, Banknote } from 'lucide-react';
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -32,6 +32,7 @@ export default function Layout() {
     { name: 'Contagem Stock', href: '/stock-counts', icon: ClipboardCheck, moduleCode: 'stock_counts' },
     { name: 'HACCP', href: '/haccp', icon: ShieldCheck, moduleCode: 'haccp' },
     { name: 'Tarefas Obrigatórias', href: '/mandatory-tasks', icon: CheckSquare, moduleCode: 'mandatory_tasks' },
+    { name: 'Fecho de Caixa', href: '/cash-closing', icon: Wallet, moduleCode: 'cash_closing' },
     { name: 'Encomendas Internas', href: '/internal-orders', icon: TruckIcon, moduleCode: 'internal_orders' },
     { name: 'Encomendas Fornecedores', href: '/purchase-orders', icon: ShoppingCart, moduleCode: 'purchase_orders' },
     { name: 'Receção Mercadoria', href: '/goods-receipts', icon: ClipboardList, moduleCode: 'goods_receipts' },
@@ -48,6 +49,7 @@ export default function Layout() {
     { name: 'Perfis de Acesso', href: '/access-profiles', icon: Shield, moduleCode: 'users' },
     { name: 'Pedidos de Registo', href: '/pending-registrations', icon: UserPlus, moduleCode: 'users' },
     { name: 'Configurações SMTP', href: '/smtp-settings', icon: Mail, moduleCode: 'smtp_settings' },
+    { name: 'Máquina de Trocos', href: '/cashmatic-settings', icon: Banknote, moduleCode: 'cashmatic_settings' },
   ];
 
   const hasAccess = (item: { moduleCode: string; units?: string[] }) => {
