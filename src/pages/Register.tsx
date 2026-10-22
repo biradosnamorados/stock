@@ -5,12 +5,6 @@ import { AlertCircle, CheckCircle2, ChevronLeft, Hash } from 'lucide-react';
 
 interface Unit { id: string; name: string }
 
-async function hashPin(pin: string): Promise<string> {
-  const buf = new TextEncoder().encode(pin);
-  const hashBuf = await crypto.subtle.digest('SHA-256', buf);
-  return Array.from(new Uint8Array(hashBuf)).map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
 export default function Register() {
   const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(false);
@@ -54,14 +48,11 @@ export default function Register() {
       if (!authData.user) throw new Error('Falha ao criar utilizador.');
 
       const userId = authData.user.id;
-      const pinHash = form.pin ? await hashPin(form.pin) : null;
-
       const { error: profileError } = await supabase
         .from('profiles')
         .update({
           full_name: form.full_name.trim(),
           unit_id: form.unit_id || null,
-          pin_hash: pinHash,
           account_status: 'pending_approval',
           active: false,
           role: 'Staff',
@@ -70,6 +61,11 @@ export default function Register() {
         .eq('id', userId);
 
       if (profileError) throw profileError;
+
+      if (form.pin) {
+        const { error: pinError } = await supabase.rpc('set_user_pin', { p_user_id: userId, p_pin: form.pin });
+        if (pinError) throw pinError;
+      }
 
       const { error: reqError } = await supabase.from('registration_requests').insert({
         profile_id: userId,

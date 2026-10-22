@@ -13,7 +13,7 @@ interface User {
   active: boolean;
   password_reset_required: boolean;
   access_profile_id: string | null;
-  pin_hash: string | null;
+  has_pin: boolean;
   units: { name: string; id: string } | null;
   departments: { name: string; id: string } | null;
   created_at: string;
@@ -22,12 +22,6 @@ interface User {
 interface Unit { id: string; name: string }
 interface Department { id: string; name: string }
 interface AccessProfile { id: string; name: string; color: string; role: string }
-
-async function hashPin(pin: string): Promise<string> {
-  const buf = new TextEncoder().encode(pin);
-  const hashBuf = await crypto.subtle.digest('SHA-256', buf);
-  return Array.from(new Uint8Array(hashBuf)).map((b) => b.toString(16).padStart(2, '0')).join('');
-}
 
 export default function Users() {
   const { profile } = useAuth();
@@ -231,8 +225,7 @@ export default function Users() {
     if (!/^\d{4}$/.test(newPin)) { setPinError('O PIN deve ter exatamente 4 dígitos.'); return; }
     setPinError('');
     try {
-      const hash = await hashPin(newPin);
-      const { error } = await supabase.from('profiles').update({ pin_hash: hash }).eq('id', pinModal.id);
+      const { error } = await supabase.rpc('set_user_pin', { p_user_id: pinModal.id, p_pin: newPin });
       if (error) throw error;
       setPinModal(null);
       setNewPin('');
@@ -500,7 +493,7 @@ export default function Users() {
                       <td className="px-6 py-4 text-sm text-slate-600">{user.units?.name || '—'}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">{user.departments?.name || '—'}</td>
                       <td className="px-6 py-4">
-                        {user.pin_hash ? (
+                        {user.has_pin ? (
                           <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium">
                             <Hash className="w-3 h-3" />
                             Definido

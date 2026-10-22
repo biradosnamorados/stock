@@ -7,13 +7,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-async function hashPin(pin: string): Promise<string> {
-  const msgBuffer = new TextEncoder().encode(pin);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -40,7 +33,7 @@ Deno.serve(async (req: Request) => {
     // Load profile
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from("profiles")
-      .select("id, email, pin_hash, active, account_status")
+      .select("id, email, active, account_status")
       .eq("id", user_id)
       .maybeSingle();
 
@@ -58,15 +51,37 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    if (!profile.pin_hash) {
+    // Verificação do PIN no servidor (bcrypt) com limite de tentativas
+    const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "desconhecido";
+    const { data: result, error: verifyErr } = await supabaseAdmin.rpc("verify_user_pin", {
+      p_user_id: user_id,
+      p_pin: pin,
+      p_ip: ip,
+    });
+
+    if (verifyErr) {
+      console.error("verify_user_pin error:", verifyErr);
+      return new Response(
+        JSON.stringify({ error: "Erro interno. Tente novamente." }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    if (result === "no_pin") {
       return new Response(
         JSON.stringify({ error: "PIN não configurado. Contacte o administrador." }),
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    const inputHash = await hashPin(pin);
-    if (inputHash !== profile.pin_hash) {
+    if (result === "locked") {
+      return new Response(
+        JSON.stringify({ error: "Demasiadas tentativas. Aguarde 15 minutos ou use a palavra-passe." }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    if (result !== "ok") {
       return new Response(
         JSON.stringify({ error: "PIN incorreto." }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },

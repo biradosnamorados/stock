@@ -29,7 +29,7 @@ interface Profile {
   password_reset_required: boolean;
   account_status: 'active' | 'pending_approval' | 'rejected';
   access_profile_id: string | null;
-  pin_hash: string | null;
+  has_pin: boolean;
   units?: Unit | null;
   departments?: Department | null;
 }

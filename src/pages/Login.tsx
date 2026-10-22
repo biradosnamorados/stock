@@ -14,13 +14,7 @@ interface LoginUser {
   username: string | null;
   email: string;
   unit_id: string | null;
-  pin_hash: string | null;
-}
-
-async function hashPin(pin: string): Promise<string> {
-  const buf = new TextEncoder().encode(pin);
-  const hash = await crypto.subtle.digest('SHA-256', buf);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+  has_pin: boolean;
 }
 
 const AVATAR_COLORS = [
@@ -66,7 +60,7 @@ export default function Login() {
   useEffect(() => {
     supabase
       .from('login_users')
-      .select('id, full_name, username, email, unit_id, pin_hash')
+      .select('id, full_name, username, email, unit_id, has_pin')
       .eq('active', true)
       .order('full_name')
       .then(({ data }) => {
@@ -98,7 +92,7 @@ export default function Login() {
     setIdentifier(u.username || u.email);
     setQuery('');
     setShowDropdown(false);
-    if (u.pin_hash) {
+    if (u.has_pin) {
       setPinUser(u);
       setPin('');
       setPinError('');
@@ -347,7 +341,7 @@ export default function Login() {
                               <p className="text-xs text-slate-400">@{u.username}</p>
                             )}
                           </div>
-                          {u.pin_hash && (
+                          {u.has_pin && (
                             <span className="text-xs text-emerald-600 font-medium bg-emerald-50 px-2 py-0.5 rounded-full flex-shrink-0">PIN</span>
                           )}
                         </button>

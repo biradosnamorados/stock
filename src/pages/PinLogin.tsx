@@ -9,8 +9,8 @@ interface StaffUser {
   email: string;
   department_id: string | null;
   unit_id: string | null;
-  pin_hash: string | null;
-  departments?: { name: string } | null;
+  has_pin: boolean;
+  department_name: string | null;
 }
 
 interface Unit {
@@ -19,15 +19,6 @@ interface Unit {
 }
 
 type Screen = 'select_unit' | 'user_grid' | 'pin_entry';
-
-// Simple hash — SHA-256 hex of the 4-digit PIN string
-async function hashPin(pin: string): Promise<string> {
-  const msgBuffer = new TextEncoder().encode(pin);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
 
 const DEVICE_UNIT_KEY = 'bn_device_unit_id';
 const DEVICE_UNIT_NAME_KEY = 'bn_device_unit_name';
@@ -64,8 +55,8 @@ export default function PinLogin() {
     if (!selectedUnit) return;
     setLoadingUsers(true);
     supabase
-      .from('profiles')
-      .select('id, full_name, email, department_id, unit_id, pin_hash, departments(name)')
+      .from('login_users')
+      .select('id, full_name, email, department_id, department_name, unit_id, has_pin')
       .eq('unit_id', selectedUnit.id)
       .eq('active', true)
       .order('full_name')
@@ -252,8 +243,8 @@ export default function PinLogin() {
                     <p className="text-white font-semibold text-sm leading-tight">
                       {user.full_name?.split(' ')[0] || user.email.split('@')[0]}
                     </p>
-                    {user.departments?.name && (
-                      <p className="text-slate-400 text-xs mt-0.5">{user.departments.name}</p>
+                    {user.department_name && (
+                      <p className="text-slate-400 text-xs mt-0.5">{user.department_name}</p>
                     )}
                   </div>
                 </button>
@@ -296,8 +287,8 @@ export default function PinLogin() {
           <h2 className="text-xl font-bold text-white">
             {selectedUser!.full_name?.split(' ')[0] || selectedUser!.email.split('@')[0]}
           </h2>
-          {selectedUser!.departments?.name && (
-            <p className="text-slate-400 text-sm mt-0.5">{selectedUser!.departments.name}</p>
+          {selectedUser!.department_name && (
+            <p className="text-slate-400 text-sm mt-0.5">{selectedUser!.department_name}</p>
           )}
         </div>
 
