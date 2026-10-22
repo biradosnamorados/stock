@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  Wallet, FileUp, Camera, RefreshCw, Save, Send, CheckCircle2, RotateCcw, Plus, Trash2,
+  Wallet, FileUp, Camera, HandCoins, RefreshCw, Save, Send, CheckCircle2, RotateCcw, Plus, Trash2,
   AlertTriangle, AlertCircle, Banknote, Image as ImageIcon, FileText, Lock, History,
 } from 'lucide-react';
 import { parseFechoPdf, familyFor, round2, PaymentFamily } from '../lib/cash/fechoParser';
@@ -59,6 +59,16 @@ interface CashmaticTx {
   income_cents: number | null;
   end_type: string | null;
   success: boolean | null;
+}
+
+interface Tip {
+  id: string;
+  amount: number;
+  payment_method: string;
+  invoice_ref: string | null;
+  storage_path: string | null;
+  created_at: string;
+  url?: string;
 }
 
 interface HistoryRow {
@@ -156,6 +166,9 @@ export default function CashClosing() {
   const [notes, setNotes] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [txs, setTxs] = useState<CashmaticTx[]>([]);
+  const [tips, setTips] = useState<Tip[]>([]);
+  const [tipForm, setTipForm] = useState<{ amount: string; method: string; invoice: string; file: File | null }>({ amount: '', method: '', invoice: '', file: null });
+  const tipFile = useRef<HTMLInputElement>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
 
   const [loading, setLoading] = useState(false);
@@ -214,9 +227,11 @@ export default function CashClosing() {
         ]);
         setLines((l || []).map((x: any) => toLine(x.payment_method, x.family, Number(x.theoretical), x.declared == null ? null : Number(x.declared), x.source)));
         await loadAttachmentUrls((a as Attachment[]) || []);
+        await loadTips(c.id);
       } else {
         setLines(DEFAULT_METHODS.map(([m, f]) => toLine(m, f)));
         setAttachments([]);
+        setTips([]);
       }
 
       const { data: t } = await supabase
@@ -243,6 +258,22 @@ export default function CashClosing() {
     }
   }
 
+  async function loadTips(closingId: string) {
+    const { data } = await supabase
+      .from('cash_tips')
+      .select('id, amount, payment_method, invoice_ref, storage_path, created_at')
+      .eq('closing_id', closingId)
+      .order('created_at');
+    const list = ((data || []) as Tip[]).map((t) => ({ ...t, amount: Number(t.amount) }));
+    const paths = list.filter((t) => t.storage_path).map((t) => t.storage_path!) ;
+    if (paths.length) {
+      const { data: urls } = await supabase.storage.from('cash-closings').createSignedUrls(paths, 3600);
+      const byPath = new Map((urls || []).map((u) => [u.path, u.signedUrl]));
+      list.forEach((t) => { if (t.storage_path) t.url = byPath.get(t.storage_path) ?? undefined; });
+    }
+    setTips(list);
+  }
+
   async function loadAttachmentUrls(list: Attachment[]) {
     if (!list.length) { setAttachments([]); return; }
     const { data } = await supabase.storage.from('cash-closings').createSignedUrls(list.map((a) => a.storage_path), 3600);
@@ -267,6 +298,11 @@ export default function CashClosing() {
     return data as unknown as Closing;
   }
 
+  const cardMethods = useMemo(() => {
+    const names = lines.filter((l) => l.family === 'cartoes' && l.payment_method.trim()).map((l) => l.payment_method.trim());
+    return names.length ? names : ['Multibanco', 'Visa'];
+  }, [lines]);
+
   // ── cálculos ──
   const summary = useMemo(() => {
     const fam = new Map<PaymentFamily, { theo: number; decl: number }>();
@@ -280,12 +316,24 @@ export default function CashClosing() {
       const v = fam.get(f)!;
       return { family: f, theo: round2(v.theo), decl: round2(v.decl), diff: round2(v.decl - v.theo) };
     });
+    // as gorjetas em cartão entram no apurado do TPA; descontam-se da diferença
+    const tipsByFamily = new Map<PaymentFamily, number>();
+    for (const t of tips) {
+      const f = familyFor(t.payment_method);
+      tipsByFamily.set(f, (tipsByFamily.get(f) ?? 0) + t.amount);
+    }
+    for (const r of rows) {
+      const tip = round2(tipsByFamily.get(r.family) ?? 0);
+      (r as any).tips = tip;
+      r.diff = round2(r.decl - r.theo - tip);
+    }
+    const tipsTotal = round2(tips.reduce((s, t) => s + t.amount, 0));
     const real = rows.filter((r) => r.family !== 'comissoes');
     const theo = round2(real.reduce((s, r) => s + r.theo, 0));
     const decl = round2(real.reduce((s, r) => s + r.decl, 0));
     const cash = rows.find((r) => r.family === 'dinheiro');
-    return { rows, theo, decl, diff: round2(decl - theo), cash };
-  }, [lines]);
+    return { rows: rows as Array<typeof rows[number] & { tips: number }>, theo, decl, diff: round2(decl - theo - tipsTotal), cash, tipsTotal };
+  }, [lines, tips]);
 
   const cashmaticTotal = useMemo(() => {
     if (!txs.length) return closing?.cashmatic_total ?? null;
@@ -414,6 +462,44 @@ export default function CashClosing() {
       setBusy(null);
       if (photoInput.current) photoInput.current.value = '';
     }
+  }
+
+  async function addTip() {
+    const amount = num(tipForm.amount);
+    if (amount <= 0) { setMsg({ type: 'err', text: 'Indique o valor da gorjeta.' }); return; }
+    const method = tipForm.method || cardMethods[0] || 'Multibanco';
+    setBusy('tip');
+    try {
+      const c = await ensureClosing();
+      let storage_path: string | null = null;
+      if (tipForm.file) {
+        const ext = (tipForm.file.name.split('.').pop() || 'jpg').toLowerCase();
+        storage_path = `${unitId}/${date}/tip-${Date.now()}-${newKey()}.${ext}`;
+        const up = await supabase.storage.from('cash-closings').upload(storage_path, tipForm.file, { contentType: tipForm.file.type || 'image/jpeg' });
+        if (up.error) throw up.error;
+      }
+      const { error } = await supabase.from('cash_tips').insert({
+        closing_id: c.id, unit_id: unitId, amount, payment_method: method,
+        invoice_ref: tipForm.invoice.trim() || null, storage_path, created_by: profile?.id,
+      });
+      if (error) throw error;
+      setTipForm({ amount: '', method, invoice: '', file: null });
+      if (tipFile.current) tipFile.current.value = '';
+      await loadTips(c.id);
+      setMsg({ type: 'ok', text: `Gorjeta de ${eur(amount)} registada.` });
+    } catch (e: any) {
+      setMsg({ type: 'err', text: e.message || 'Erro ao registar a gorjeta.' });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function removeTip(t: Tip) {
+    if (!confirm(`Remover a gorjeta de ${eur(t.amount)}?`)) return;
+    const { error } = await supabase.from('cash_tips').delete().eq('id', t.id);
+    if (error) { setMsg({ type: 'err', text: error.message }); return; }
+    if (t.storage_path) await supabase.storage.from('cash-closings').remove([t.storage_path]);
+    setTips((l) => l.filter((x) => x.id !== t.id));
   }
 
   async function removeAttachment(a: Attachment) {
@@ -613,11 +699,73 @@ export default function CashClosing() {
                 )}
               </section>
 
-              {/* 3. Cashmatic */}
+              {/* 3. Gorjetas em cartão */}
+              <section className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5">
+                <h2 className="font-semibold text-slate-900 flex items-center gap-2"><HandCoins className="w-4 h-4" /> 3. Gorjetas em cartão</h2>
+                <p className="text-sm text-slate-500 mb-3">
+                  Quando o cliente deixa gorjeta no TPA, registe-a aqui com a foto da 2.ª via e do comprovativo. O valor fica explicado na diferença dos cartões e acumula para a equipa.
+                </p>
+                {editable && (
+                  <div className="grid grid-cols-2 sm:grid-cols-12 gap-2 items-end mb-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs text-slate-500 mb-1">Valor (€)</label>
+                      <input inputMode="decimal" value={tipForm.amount} onChange={(e) => setTipForm({ ...tipForm, amount: e.target.value })} className={`${inputCls} text-right`} placeholder="4,00" />
+                    </div>
+                    <div className="sm:col-span-3">
+                      <label className="block text-xs text-slate-500 mb-1">TPA / método</label>
+                      <select value={tipForm.method || cardMethods[0]} onChange={(e) => setTipForm({ ...tipForm, method: e.target.value })} className={inputCls}>
+                        {cardMethods.map((m) => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </div>
+                    <div className="sm:col-span-3">
+                      <label className="block text-xs text-slate-500 mb-1">Nº fatura (opcional)</label>
+                      <input value={tipForm.invoice} onChange={(e) => setTipForm({ ...tipForm, invoice: e.target.value })} className={inputCls} placeholder="FR 2026/123" />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <input ref={tipFile} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => setTipForm({ ...tipForm, file: e.target.files?.[0] ?? null })} />
+                      <button type="button" onClick={() => tipFile.current?.click()} className={`w-full inline-flex justify-center items-center gap-1 px-2 py-1.5 border rounded-md text-sm ${tipForm.file ? 'border-green-400 text-green-700 bg-green-50' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
+                        <Camera className="w-4 h-4" /> {tipForm.file ? 'Foto ✓' : 'Foto'}
+                      </button>
+                    </div>
+                    <div className="col-span-2 sm:col-span-2">
+                      <button onClick={addTip} disabled={busy !== null} className="w-full inline-flex justify-center items-center gap-1 px-2 py-1.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+                        <Plus className="w-4 h-4" /> {busy === 'tip' ? '…' : 'Adicionar'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {tips.length ? (
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {tips.map((t) => (
+                        <tr key={t.id} className="border-b border-slate-100">
+                          <td className="py-1.5 px-1 tabular-nums font-medium">{eur(t.amount)}</td>
+                          <td className="py-1.5 px-1 text-slate-600">{t.payment_method}</td>
+                          <td className="py-1.5 px-1 text-slate-500">{t.invoice_ref || '—'}</td>
+                          <td className="py-1.5 px-1">
+                            {t.url ? <a href={t.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline text-xs">ver foto</a> : <span className="text-xs text-amber-600">sem foto</span>}
+                          </td>
+                          <td className="py-1.5 px-1 text-right">
+                            {editable && <button onClick={() => removeTip(t)} className="p-1 text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>}
+                          </td>
+                        </tr>
+                      ))}
+                      <tr className="font-semibold">
+                        <td className="pt-2 px-1 tabular-nums">{eur(summary.tipsTotal)}</td>
+                        <td colSpan={4} className="pt-2 px-1 text-slate-500 font-normal text-xs">total de gorjetas neste fecho</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="text-sm text-slate-400">Sem gorjetas em cartão registadas.</p>
+                )}
+              </section>
+
+              {/* 4. Cashmatic */}
               <section className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5">
                 <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
                   <div>
-                    <h2 className="font-semibold text-slate-900">3. Máquina de trocos</h2>
+                    <h2 className="font-semibold text-slate-900">4. Máquina de trocos</h2>
                     <p className="text-sm text-slate-500">Pagamentos registados pela Cashmatic neste dia.</p>
                   </div>
                   <button disabled={busy !== null} onClick={syncCashmatic} className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
@@ -667,7 +815,7 @@ export default function CashClosing() {
               <section className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5">
                 <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
                   <div>
-                    <h2 className="font-semibold text-slate-900">4. Talões e fotos</h2>
+                    <h2 className="font-semibold text-slate-900">5. Talões e fotos</h2>
                     <p className="text-sm text-slate-500">Fotografe os fechos dos TPAs e outros talões para conferência.</p>
                   </div>
                   <div className="flex gap-2">
@@ -733,7 +881,12 @@ export default function CashClosing() {
                     </tr>
                   </tbody>
                 </table>
-                {showTheo && <p className="text-xs text-slate-400 mt-2">O total não inclui as comissões dos TPAs.</p>}
+                {summary.tipsTotal > 0 && (
+                  <p className="text-xs text-emerald-700 mt-2">
+                    Inclui {eur(summary.tipsTotal)} de gorjetas em cartão{showTheo ? ', já descontadas da diferença' : ''}.
+                  </p>
+                )}
+                {showTheo && <p className="text-xs text-slate-400 mt-1">O total não inclui as comissões dos TPAs.</p>}
 
                 {showTheo && alerts.length > 0 && (
                   <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800 space-y-1">
