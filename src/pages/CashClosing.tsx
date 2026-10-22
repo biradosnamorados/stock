@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -26,6 +27,8 @@ interface Closing {
   submitted_at: string | null;
   validated_at: string | null;
   reopen_reason: string | null;
+  submitter?: { full_name: string | null } | null;
+  validator?: { full_name: string | null } | null;
 }
 
 interface Line {
@@ -103,6 +106,10 @@ const KIND_LABEL: Record<AttachmentKind, string> = {
   other: 'Outro',
 };
 
+const CLOSING_SELECT =
+  'id, unit_id, closing_date, status, pos_theoretical_total, declared_total, cashmatic_total, notes, submitted_at, validated_at, reopen_reason, ' +
+  'submitter:profiles!cash_closings_submitted_by_fkey(full_name), validator:profiles!cash_closings_validated_by_fkey(full_name)';
+
 // ───────────────────────── utilitários ─────────────────────────
 
 const eur = (n: number | null | undefined) =>
@@ -136,10 +143,13 @@ export default function CashClosing() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'Admin';
   const isManager = isAdmin || profile?.role === 'Chefe';
+  // Fecho cego: a equipa indica só o apurado; teórico e diferenças só para Gerente/Admin
+  const showTheo = isManager;
 
+  const [params] = useSearchParams();
   const [units, setUnits] = useState<Unit[]>([]);
   const [unitId, setUnitId] = useState<string>('');
-  const [date, setDate] = useState<string>(todayLisbon());
+  const [date, setDate] = useState<string>(params.get('date') || todayLisbon());
 
   const [closing, setClosing] = useState<Closing | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
@@ -168,7 +178,8 @@ export default function CashClosing() {
         const list = (data || []).filter((u: Unit) => u.type === 'restaurant' || u.type === 'events') as Unit[];
         setUnits(list);
         const own = list.find((u) => u.id === profile.unit_id);
-        setUnitId((prev) => prev || own?.id || list[0]?.id || '');
+        const fromLink = list.find((u) => u.id === params.get('unit'));
+        setUnitId((prev) => prev || fromLink?.id || own?.id || list[0]?.id || '');
       } else if (profile.unit_id) {
         setUnits([{ id: profile.unit_id, name: profile.units?.name ?? 'A minha unidade', type: '' }]);
         setUnitId(profile.unit_id);
@@ -185,14 +196,15 @@ export default function CashClosing() {
     setLoading(true);
     setMsg(null);
     try {
-      const { data: c } = await supabase
+      const { data: raw } = await supabase
         .from('cash_closings')
-        .select('id, unit_id, closing_date, status, pos_theoretical_total, declared_total, cashmatic_total, notes, submitted_at, validated_at, reopen_reason')
+        .select(CLOSING_SELECT)
         .eq('unit_id', unitId)
         .eq('closing_date', date)
         .maybeSingle();
+      const c = (raw as unknown as Closing | null) ?? null;
 
-      setClosing((c as Closing) ?? null);
+      setClosing(c);
       setNotes(c?.notes ?? '');
 
       if (c) {
@@ -243,16 +255,16 @@ export default function CashClosing() {
     const { data, error } = await supabase
       .from('cash_closings')
       .insert({ unit_id: unitId, closing_date: date, created_by: profile?.id, status: 'draft' })
-      .select('id, unit_id, closing_date, status, pos_theoretical_total, declared_total, cashmatic_total, notes, submitted_at, validated_at, reopen_reason')
+      .select(CLOSING_SELECT)
       .single();
     if (error) {
       // pode já ter sido criado noutro dispositivo
-      const { data: existing } = await supabase.from('cash_closings').select('*').eq('unit_id', unitId).eq('closing_date', date).maybeSingle();
-      if (existing) { setClosing(existing as Closing); return existing as Closing; }
+      const { data: existing } = await supabase.from('cash_closings').select(CLOSING_SELECT).eq('unit_id', unitId).eq('closing_date', date).maybeSingle();
+      if (existing) { setClosing(existing as unknown as Closing); return existing as unknown as Closing; }
       throw error;
     }
-    setClosing(data as Closing);
-    return data as Closing;
+    setClosing(data as unknown as Closing);
+    return data as unknown as Closing;
   }
 
   // ── cálculos ──
@@ -325,13 +337,13 @@ export default function CashClosing() {
         .from('cash_closings')
         .update({ pos_theoretical_total: summary.theo, declared_total: summary.decl, notes: notes || null, ...extra })
         .eq('id', c.id)
-        .select('id, unit_id, closing_date, status, pos_theoretical_total, declared_total, cashmatic_total, notes, submitted_at, validated_at, reopen_reason')
+        .select(CLOSING_SELECT)
         .single();
       if (error) throw error;
-      setClosing(data as Closing);
+      setClosing(data as unknown as Closing);
       setDirty(false);
       if (!quiet) setMsg({ type: 'ok', text: 'Fecho guardado.' });
-      return data as Closing;
+      return data as unknown as Closing;
     } catch (e: any) {
       setMsg({ type: 'err', text: e.message || 'Erro ao guardar.' });
       return null;
@@ -351,7 +363,12 @@ export default function CashClosing() {
         const ok = confirm(`O PDF é do dia ${parsed.date.split('-').reverse().join('/')}, mas está aberto o fecho de ${date.split('-').reverse().join('/')}.\n\nQuer importar mesmo assim para este dia?`);
         if (!ok) return;
       }
-      const newLines = parsed.lines.map((l) => toLine(l.payment_method, l.family, l.theoretical, l.declared, 'pos_pdf'));
+      const current = new Map(lines.map((l) => [l.payment_method.toLowerCase(), l]));
+      const newLines = parsed.lines.map((l) => {
+        const prev = current.get(l.payment_method.toLowerCase());
+        const theo = l.theoretical ?? (prev ? num(prev.theoretical) : 0);
+        return toLine(l.payment_method, l.family, theo, l.declared, 'pos_pdf');
+      });
       setLines(newLines);
       setDirty(true);
 
@@ -361,9 +378,9 @@ export default function CashClosing() {
       if (up.error) throw up.error;
       await supabase.from('cash_closing_attachments').insert({ closing_id: c.id, kind: 'pos_pdf', storage_path: path, label: file.name, uploaded_by: profile?.id });
 
-      const check = parsed.totalTheoretical != null
+      const check = showTheo && parsed.totalTheoretical != null
         ? ` Totais do PDF: teórico ${eur(parsed.totalTheoretical)}, apurado ${eur(parsed.totalDeclared)}.`
-        : '';
+        : parsed.totalDeclared != null ? ` Total apurado no PDF: ${eur(parsed.totalDeclared)}.` : '';
       setMsg({ type: 'ok', text: `PDF importado: ${parsed.lines.length} métodos de pagamento.${check} Reveja os valores e carregue em Guardar.` });
       const { data: a } = await supabase.from('cash_closing_attachments').select('id, kind, storage_path, label, created_at').eq('closing_id', c.id).order('created_at');
       await loadAttachmentUrls((a as Attachment[]) || []);
@@ -432,7 +449,7 @@ export default function CashClosing() {
   // ── estados ──
   async function submit() {
     if (!summary.rows.length) return;
-    if (alerts.length && !confirm(`Este fecho tem diferenças:\n\n• ${alerts.join('\n• ')}\n\nSubmeter mesmo assim?`)) return;
+    if (showTheo && alerts.length && !confirm(`Este fecho tem diferenças:\n\n• ${alerts.join('\n• ')}\n\nSubmeter mesmo assim?`)) return;
     const c = await save({ status: 'submitted', submitted_at: new Date().toISOString(), submitted_by: profile?.id }, true);
     if (c) { setMsg({ type: 'ok', text: 'Fecho submetido para validação.' }); loadAll(); }
   }
@@ -505,8 +522,29 @@ export default function CashClosing() {
             <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${st.cls}`}>{st.text}</span>
             {closing?.status === 'validated' && <span className="text-xs text-slate-500 flex items-center gap-1"><Lock className="w-3 h-3" /> Bloqueado{isAdmin ? ' (Admin pode editar)' : ''}</span>}
             {closing?.status === 'reopened' && closing.reopen_reason && <span className="text-xs text-amber-700">Motivo: {closing.reopen_reason}</span>}
+            {closing?.submitted_at && (
+              <span className="text-xs text-slate-500">
+                Fechado por {closing.submitter?.full_name ?? '—'} · {new Date(closing.submitted_at).toLocaleString('pt-PT', { timeZone: 'Europe/Lisbon', dateStyle: 'short', timeStyle: 'short' })}
+              </span>
+            )}
+            {closing?.status === 'validated' && closing.validated_at && (
+              <span className="text-xs text-green-700">
+                Validado por {closing.validator?.full_name ?? '—'} · {new Date(closing.validated_at).toLocaleString('pt-PT', { timeZone: 'Europe/Lisbon', dateStyle: 'short', timeStyle: 'short' })}
+              </span>
+            )}
             {dirty && <span className="text-xs text-amber-600">Alterações por guardar</span>}
           </div>
+
+          {!showTheo && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+              Fecho cego: indique os valores que contou e os totais dos TPAs. O gerente compara-os depois com o faturado e valida o fecho.
+            </div>
+          )}
+          {showTheo && closing?.status === 'submitted' && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+              Este fecho aguarda validação. Confirme os valores, as fotos e as diferenças antes de validar.
+            </div>
+          )}
 
           <div className="grid lg:grid-cols-3 gap-6">
             {/* Coluna principal */}
@@ -528,16 +566,20 @@ export default function CashClosing() {
               {/* 2. Linhas */}
               <section className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5">
                 <h2 className="font-semibold text-slate-900 mb-1">2. Métodos de pagamento</h2>
-                <p className="text-sm text-slate-500 mb-4">Teórico = faturado no POS. Apurado = o que foi contado ou indicado nos TPAs.</p>
+                <p className="text-sm text-slate-500 mb-4">
+                  {showTheo
+                    ? 'Teórico = faturado no POS. Apurado = o que a equipa contou ou leu nos TPAs.'
+                    : 'Indique o valor apurado de cada método: o total de cada TPA, o dinheiro e as plataformas (Uber…).'}
+                </p>
                 <div className="overflow-x-auto -mx-4 sm:mx-0">
-                  <table className="w-full text-sm min-w-[560px]">
+                  <table className={`w-full text-sm ${showTheo ? 'min-w-[560px]' : 'min-w-[380px]'}`}>
                     <thead>
                       <tr className="text-left text-slate-500 border-b border-slate-200">
                         <th className="py-2 px-2 font-medium">Método</th>
                         <th className="py-2 px-2 font-medium">Família</th>
-                        <th className="py-2 px-2 font-medium text-right">Teórico</th>
+                        {showTheo && <th className="py-2 px-2 font-medium text-right">Teórico</th>}
                         <th className="py-2 px-2 font-medium text-right">Apurado</th>
-                        <th className="py-2 px-2 font-medium text-right">Diferença</th>
+                        {showTheo && <th className="py-2 px-2 font-medium text-right">Diferença</th>}
                         <th className="w-8" />
                       </tr>
                     </thead>
@@ -552,9 +594,9 @@ export default function CashClosing() {
                                 {FAMILY_ORDER.map((f) => <option key={f} value={f}>{FAMILY_LABEL[f]}</option>)}
                               </select>
                             </td>
-                            <td className="py-1.5 px-2 w-28"><input inputMode="decimal" className={`${inputCls} text-right`} value={l.theoretical} disabled={!editable} onChange={(e) => updateLine(l.key, { theoretical: e.target.value })} /></td>
+                            {showTheo && <td className="py-1.5 px-2 w-28"><input inputMode="decimal" className={`${inputCls} text-right`} value={l.theoretical} disabled={!editable} onChange={(e) => updateLine(l.key, { theoretical: e.target.value })} /></td>}
                             <td className="py-1.5 px-2 w-28"><input inputMode="decimal" className={`${inputCls} text-right`} value={l.declared} disabled={!editable} onChange={(e) => updateLine(l.key, { declared: e.target.value })} placeholder="0,00" /></td>
-                            <td className={`py-1.5 px-2 text-right tabular-nums ${diffClass(d)}`}>{eur(d)}</td>
+                            {showTheo && <td className={`py-1.5 px-2 text-right tabular-nums ${diffClass(d)}`}>{eur(d)}</td>}
                             <td className="py-1.5 px-1">
                               {editable && <button onClick={() => removeLine(l.key)} className="p-1 text-slate-400 hover:text-red-600" title="Remover"><Trash2 className="w-4 h-4" /></button>}
                             </td>
@@ -584,10 +626,10 @@ export default function CashClosing() {
                 </div>
                 {cashmaticTotal != null ? (
                   <>
-                    <div className="grid grid-cols-3 gap-3 mb-4">
+                    <div className={`grid gap-3 mb-4 ${showTheo ? 'grid-cols-3' : 'grid-cols-2'}`}>
                       <Stat label="Máquina de trocos" value={eur(cashmaticTotal)} />
                       <Stat label="Dinheiro apurado" value={eur(summary.cash?.decl ?? 0)} />
-                      <Stat label="Diferença" value={eur(round2((summary.cash?.decl ?? 0) - cashmaticTotal))} cls={diffClass(round2((summary.cash?.decl ?? 0) - cashmaticTotal))} />
+                      {showTheo && <Stat label="Diferença" value={eur(round2((summary.cash?.decl ?? 0) - cashmaticTotal))} cls={diffClass(round2((summary.cash?.decl ?? 0) - cashmaticTotal))} />}
                     </div>
                     {txs.length > 0 && (
                       <div className="overflow-x-auto">
@@ -669,31 +711,31 @@ export default function CashClosing() {
                   <thead>
                     <tr className="text-slate-500 text-xs">
                       <th className="text-left font-medium pb-2">Família</th>
-                      <th className="text-right font-medium pb-2">Teórico</th>
+                      {showTheo && <th className="text-right font-medium pb-2">Teórico</th>}
                       <th className="text-right font-medium pb-2">Apurado</th>
-                      <th className="text-right font-medium pb-2">Dif.</th>
+                      {showTheo && <th className="text-right font-medium pb-2">Dif.</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {summary.rows.map((r) => (
                       <tr key={r.family} className={r.family === 'comissoes' ? 'text-slate-400' : ''}>
                         <td className="py-1">{FAMILY_LABEL[r.family]}</td>
-                        <td className="py-1 text-right tabular-nums">{eur(r.theo)}</td>
+                        {showTheo && <td className="py-1 text-right tabular-nums">{eur(r.theo)}</td>}
                         <td className="py-1 text-right tabular-nums">{eur(r.decl)}</td>
-                        <td className={`py-1 text-right tabular-nums ${r.family === 'comissoes' ? '' : diffClass(r.diff)}`}>{eur(r.diff)}</td>
+                        {showTheo && <td className={`py-1 text-right tabular-nums ${r.family === 'comissoes' ? '' : diffClass(r.diff)}`}>{eur(r.diff)}</td>}
                       </tr>
                     ))}
                     <tr className="border-t border-slate-200 font-semibold">
                       <td className="pt-2">Total</td>
-                      <td className="pt-2 text-right tabular-nums">{eur(summary.theo)}</td>
+                      {showTheo && <td className="pt-2 text-right tabular-nums">{eur(summary.theo)}</td>}
                       <td className="pt-2 text-right tabular-nums">{eur(summary.decl)}</td>
-                      <td className={`pt-2 text-right tabular-nums ${diffClass(summary.diff)}`}>{eur(summary.diff)}</td>
+                      {showTheo && <td className={`pt-2 text-right tabular-nums ${diffClass(summary.diff)}`}>{eur(summary.diff)}</td>}
                     </tr>
                   </tbody>
                 </table>
-                <p className="text-xs text-slate-400 mt-2">O total não inclui as comissões dos TPAs.</p>
+                {showTheo && <p className="text-xs text-slate-400 mt-2">O total não inclui as comissões dos TPAs.</p>}
 
-                {alerts.length > 0 && (
+                {showTheo && alerts.length > 0 && (
                   <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800 space-y-1">
                     <p className="font-medium flex items-center gap-1"><AlertTriangle className="w-4 h-4" /> A verificar</p>
                     {alerts.map((a) => <p key={a}>• {a}</p>)}
@@ -739,7 +781,7 @@ export default function CashClosing() {
                           <button onClick={() => setDate(h.closing_date)} className={`w-full flex items-center justify-between gap-2 py-2 text-left hover:bg-slate-50 px-1 rounded ${h.closing_date === date ? 'bg-blue-50' : ''}`}>
                             <span>{h.closing_date.split('-').reverse().join('/')}</span>
                             <span className="flex items-center gap-2">
-                              {d != null && <span className={`tabular-nums text-xs ${diffClass(d)}`}>{eur(d)}</span>}
+                              {showTheo && d != null && <span className={`tabular-nums text-xs ${diffClass(d)}`}>{eur(d)}</span>}
                               <span className={`px-2 py-0.5 rounded-full text-[11px] ${STATUS_LABEL[h.status].cls}`}>{STATUS_LABEL[h.status].text}</span>
                             </span>
                           </button>

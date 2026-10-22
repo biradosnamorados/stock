@@ -2,14 +2,15 @@
 //
 // O PDF tem cada texto duplicado: uma cópia normal e outra espelhada (escala horizontal
 // negativa). Usamos só as cópias normais e agrupamos por linha (coordenada y).
-// Cada linha de método tem: nome + Teórico + Apurado + Diferença.
+// Cada linha de método tem: nome + Teórico + Apurado + Diferença,
+// ou só nome + Apurado quando o POS envia o fecho cego sem o teórico.
 
 export type PaymentFamily = 'dinheiro' | 'cartoes' | 'comissoes' | 'plataformas' | 'outro';
 
 export interface ParsedLine {
   payment_method: string;
   family: PaymentFamily;
-  theoretical: number;
+  theoretical: number | null; // null quando o PDF só traz o apurado (fecho cego)
   declared: number;
 }
 
@@ -80,11 +81,15 @@ export function parseFechoItems(items: TextItem[]): ParsedFecho {
     if (dm && !date) date = dm[1];
     if (/^Turno\s+\d+/i.test(label)) shifts++;
 
-    if (nums.length < 3 || !label) continue;
+    if (!nums.length || !label) continue;
+
+    // com teórico: [teórico, apurado, diferença]; só apurado: [apurado]
+    const theo = nums.length >= 3 ? nums[0] : null;
+    const decl = nums.length >= 3 ? nums[1] : nums[nums.length - 1];
 
     if (/^Total\s+Dia/i.test(label)) {
-      totalTheoretical = nums[0];
-      totalDeclared = nums[1];
+      totalTheoretical = theo;
+      totalDeclared = decl;
       continue;
     }
     if (/^Total/i.test(label)) continue;
@@ -93,10 +98,10 @@ export function parseFechoItems(items: TextItem[]): ParsedFecho {
     const key = name.toLowerCase();
     const prev = byMethod.get(key);
     if (prev) {
-      prev.theoretical = round2(prev.theoretical + nums[0]);
-      prev.declared = round2(prev.declared + nums[1]);
+      prev.theoretical = theo == null && prev.theoretical == null ? null : round2((prev.theoretical ?? 0) + (theo ?? 0));
+      prev.declared = round2(prev.declared + decl);
     } else {
-      byMethod.set(key, { payment_method: name, family: familyFor(name), theoretical: nums[0], declared: nums[1] });
+      byMethod.set(key, { payment_method: name, family: familyFor(name), theoretical: theo, declared: decl });
     }
   }
 

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { LayoutDashboard, Package, PackageOpen, Warehouse, ShoppingCart, Truck as TruckIcon, ClipboardList, QrCode, LogOut, Menu, X, Settings, Users, Building2, Mail, ChevronDown, ChevronRight, TrendingUp, Upload, ChefHat, ClipboardCheck, ShieldCheck, CheckSquare, Shield, UserPlus, Wallet, Banknote } from 'lucide-react';
+import { LayoutDashboard, Package, PackageOpen, Warehouse, ShoppingCart, Truck as TruckIcon, ClipboardList, QrCode, LogOut, Menu, X, Settings, Users, Building2, Mail, ChevronDown, ChevronRight, TrendingUp, Upload, ChefHat, ClipboardCheck, ShieldCheck, CheckSquare, Shield, UserPlus, Wallet, Banknote, BarChart3 } from 'lucide-react';
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -32,7 +32,9 @@ export default function Layout() {
     { name: 'Contagem Stock', href: '/stock-counts', icon: ClipboardCheck, moduleCode: 'stock_counts' },
     { name: 'HACCP', href: '/haccp', icon: ShieldCheck, moduleCode: 'haccp' },
     { name: 'Tarefas Obrigatórias', href: '/mandatory-tasks', icon: CheckSquare, moduleCode: 'mandatory_tasks' },
-    { name: 'Fecho de Caixa', href: '/cash-closing', icon: Wallet, moduleCode: 'cash_closing' },
+    // Fecho de caixa: qualquer pessoa da equipa de Sala, gerentes (Chefe) e Admin
+    { name: 'Fecho de Caixa', href: '/cash-closing', icon: Wallet, moduleCode: 'cash_closing', alsoFor: { roles: ['Chefe'], departments: ['Sala'] } },
+    { name: 'Relatório de Fechos', href: '/cash-closing-report', icon: BarChart3, moduleCode: 'cash_closing', roles: ['Admin', 'Chefe'] },
     { name: 'Encomendas Internas', href: '/internal-orders', icon: TruckIcon, moduleCode: 'internal_orders' },
     { name: 'Encomendas Fornecedores', href: '/purchase-orders', icon: ShoppingCart, moduleCode: 'purchase_orders' },
     { name: 'Receção Mercadoria', href: '/goods-receipts', icon: ClipboardList, moduleCode: 'goods_receipts' },
@@ -52,10 +54,17 @@ export default function Layout() {
     { name: 'Máquina de Trocos', href: '/cashmatic-settings', icon: Banknote, moduleCode: 'cashmatic_settings' },
   ];
 
-  const hasAccess = (item: { moduleCode: string; units?: string[] }) => {
+  const hasAccess = (item: { moduleCode: string; units?: string[]; roles?: string[]; alsoFor?: { roles?: string[]; departments?: string[] } }) => {
     if (!profile) return false;
 
-    if (!hasPermission(item.moduleCode, 'view')) return false;
+    if (item.roles && !item.roles.includes(profile.role)) return false;
+
+    const byTeam = !!item.alsoFor && (
+      (item.alsoFor.roles?.includes(profile.role) ?? false) ||
+      (item.alsoFor.departments?.includes(profile.departments?.name ?? '') ?? false)
+    );
+
+    if (!byTeam && !hasPermission(item.moduleCode, 'view')) return false;
 
     if (item.units && item.units.length > 0) {
       const userUnit = profile.units?.name;
