@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import {
   Wallet, FileUp, Camera, HandCoins, RefreshCw, Save, Send, CheckCircle2, RotateCcw, Plus, Trash2,
-  AlertTriangle, AlertCircle, Banknote, Image as ImageIcon, FileText, Lock, History,
+  AlertTriangle, AlertCircle, Banknote, Image as ImageIcon, FileText, Lock, History, Mail,
 } from 'lucide-react';
 import { parseFechoPdf, familyFor, round2, PaymentFamily } from '../lib/cash/fechoParser';
 
@@ -478,6 +478,51 @@ export default function CashClosing() {
     }
   }
 
+  // ── fecho do POS vindo do email (caixa fechos@) ──
+  async function fetchFromEmail() {
+    setBusy('email');
+    setMsg(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('pos-fecho-fetch', { body: { unit_id: unitId, date } });
+      let errText = data?.error as string | undefined;
+      if (error && !errText) {
+        try { errText = (await (error as any).context?.json?.())?.error; } catch { /* */ }
+        errText = errText ?? error.message;
+      }
+      if (errText) throw new Error(errText);
+      const files: { name: string; base64: string; received_at: string }[] = data?.files ?? [];
+      if (!files.length) {
+        setMsg({ type: 'err', text: data?.message ?? 'Ainda não chegou o fecho do POS. Tente daqui a 1 minuto.' });
+        return;
+      }
+      const toFile = (f: { name: string; base64: string }) => {
+        const bin = atob(f.base64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return new File([bytes], f.name || 'fecho-pos.pdf', { type: 'application/pdf' });
+      };
+      // escolher o PDF que é deste dia (o POS escreve "Dia AAAA-MM-DD" no fecho)
+      let chosen: File | null = null;
+      for (const f of files) {
+        const file = toFile(f);
+        try {
+          const parsed = await parseFechoPdf(file);
+          if (parsed.date === date && parsed.lines.length) { chosen = file; break; }
+        } catch { /* não é o PDF do fecho */ }
+      }
+      if (!chosen) {
+        setMsg({ type: 'err', text: 'Chegaram emails com PDF, mas nenhum é o fecho deste dia. Confirme a data ou carregue o PDF à mão.' });
+        return;
+      }
+      setBusy(null);
+      await onPdf(chosen);
+    } catch (e: any) {
+      setMsg({ type: 'err', text: e.message || 'Não foi possível ir buscar o fecho ao email.' });
+    } finally {
+      setBusy((b) => (b === 'email' ? null : b));
+    }
+  }
+
   // ── fotos ──
   async function onPhotos(files: FileList) {
     setBusy('photo');
@@ -678,12 +723,17 @@ export default function CashClosing() {
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div>
                     <h2 className="font-semibold text-slate-900">1. Fecho do POS</h2>
-                    <p className="text-sm text-slate-500">Carregue o PDF "Fecho cego" para preencher os valores automaticamente.</p>
+                    <p className="text-sm text-slate-500">Vai buscar o fecho que o POS enviou por email e preenche os valores automaticamente.</p>
                   </div>
                   <input ref={pdfInput} type="file" accept="application/pdf" className="hidden" onChange={(e) => e.target.files?.[0] && onPdf(e.target.files[0])} />
-                  <button disabled={!editable || busy !== null} onClick={() => pdfInput.current?.click()} className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
-                    <FileUp className="w-4 h-4" /> {busy === 'pdf' ? 'A ler…' : 'Carregar PDF'}
-                  </button>
+                  <div className="flex gap-2 flex-wrap">
+                    <button disabled={!editable || busy !== null} onClick={fetchFromEmail} className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+                      <Mail className="w-4 h-4" /> {busy === 'email' ? 'A procurar no email…' : busy === 'pdf' ? 'A ler…' : 'Ir buscar ao email'}
+                    </button>
+                    <button disabled={!editable || busy !== null} onClick={() => pdfInput.current?.click()} className="inline-flex items-center gap-2 px-3 py-2 border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
+                      <FileUp className="w-4 h-4" /> Carregar PDF
+                    </button>
+                  </div>
                 </div>
               </section>
 
