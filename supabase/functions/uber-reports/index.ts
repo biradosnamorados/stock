@@ -8,7 +8,7 @@ import { getUberToken, requestReport, uberSecrets, UBER_ENV } from "./uber_clien
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, X-Cron-Key",
 };
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
@@ -34,6 +34,30 @@ Deno.serve(async (req) => {
         return json({ secrets: true, token: true, env: UBER_ENV });
       } catch (e) {
         return json({ secrets: true, token: false, env: UBER_ENV, error: (e as Error).message });
+      }
+    }
+
+    // Pedido automático noturno (pg_cron): últimos 7 dias, todas as lojas ativas.
+    // A Uber só fecha os valores ~72h depois; os repetidos são eliminados na vista uber_orders.
+    if (body.action === "cron") {
+      const { data: cfg } = await admin.from("uber_cron_config").select("cron_key").eq("id", 1).maybeSingle();
+      if (!cfg || req.headers.get("x-cron-key") !== cfg.cron_key) return json({ error: "Não autorizado." }, 401);
+      const lisbon = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Lisbon" }).format(d);
+      const end = lisbon(new Date(Date.now() - 1 * 86400000));
+      const start = lisbon(new Date(Date.now() - 7 * 86400000));
+      const { data: stores } = await admin.from("uber_stores").select("store_uuid").eq("active", true);
+      const storeUuids = (stores ?? []).map((s) => s.store_uuid);
+      if (!storeUuids.length) return json({ ok: true, skipped: "sem lojas" });
+      const { data: reqRow } = await admin.from("uber_report_requests").insert({
+        report_type: "PAYMENT_DETAILS_REPORT", store_uuids: storeUuids, start_date: start, end_date: end,
+      }).select("id").single();
+      try {
+        const r = await requestReport(admin, { report_type: "PAYMENT_DETAILS_REPORT", store_uuids: storeUuids, start_date: start, end_date: end });
+        await admin.from("uber_report_requests").update({ workflow_id: r.workflow_id }).eq("id", reqRow!.id);
+        return json({ ok: true, workflow_id: r.workflow_id, start, end });
+      } catch (e) {
+        await admin.from("uber_report_requests").update({ status: "error", error: (e as Error).message }).eq("id", reqRow!.id);
+        return json({ ok: false, error: (e as Error).message }, 502);
       }
     }
 
