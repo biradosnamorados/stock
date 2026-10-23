@@ -1,0 +1,116 @@
+# Bira Gestão — compila a app iPhone/iPad num Mac da GitHub e envia-a para o TestFlight.
+# (igual ao da Bira Reservas)
+# Corre só à mão (Actions → iOS → Run workflow), porque os minutos de Mac contam a dobrar muitas vezes.
+# Sem os segredos da Apple, só confirma que a app compila (no simulador), sem enviar nada.
+#
+# Segredos necessários para enviar para o TestFlight (Settings → Secrets and variables → Actions):
+
+#   APPLE_API_KEY_ID      → App Store Connect → Utilizadores e acesso → Integrações → Chaves (Key ID)
+#   APPLE_API_ISSUER_ID   → mesma página, "Issuer ID" no topo
+#   APPLE_API_KEY_BASE64  → o ficheiro AuthKey_XXXX.p8 em base64
+name: iOS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ios:
+    runs-on: macos-15
+    env:
+      TEM_CHAVE: ${{ secrets.APPLE_API_KEY_BASE64 != '' }}
+      NUMERO_VERSAO: ${{ github.run_number }}
+      EQUIPA: P7WHDV55U2   # Team ID da Apple (Bira dos Namorados)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Escolher o Xcode mais recente
+        # a App Store só aceita apps feitas com o SDK mais recente (Xcode 26 ou mais)
+        run: |
+          echo "::notice::Xcodes neste Mac: $(ls -d /Applications/Xcode_*.app | xargs -n1 basename | tr '\n' ' ')"
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | grep -v -i beta | sort -V | tail -1)"
+          echo "::notice::$(xcodebuild -version | tr '\n' ' ')"
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Compilar a app web
+        # chaves públicas do Supabase (as mesmas que estão no site)
+        env:
+          VITE_SUPABASE_URL: https://baecvseqpsxsfnwagsqj.supabase.co
+          VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJhZWN2c2VxcHN4c2Zud2Fnc3FqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyNjY2NzAsImV4cCI6MjA4OTg0MjY3MH0.T-jQYXbGUZJa0xx99hC0pvXj2ZvnpLqHKwMXTHkXQ6U
+        run: npm run build
+
+      - name: Copiar para o projeto iOS
+        run: npx cap sync ios
+
+      # ---------- sem segredos: só confirma que compila ----------
+      - name: Compilar para o simulador (teste)
+        if: env.TEM_CHAVE != 'true'
+        working-directory: ios/App
+        run: |
+          set -o pipefail
+          xcodebuild -workspace App.xcworkspace -scheme App -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build > "$RUNNER_TEMP/xcode.log" 2>&1
+          tail -5 "$RUNNER_TEMP/xcode.log"
+
+      # ---------- com segredos: assina e envia para o TestFlight ----------
+      - name: Preparar chave da App Store Connect
+        if: env.TEM_CHAVE == 'true'
+        run: echo "${{ secrets.APPLE_API_KEY_BASE64 }}" | base64 -d > "$RUNNER_TEMP/AuthKey.p8"
+
+      - name: Arquivar (assinatura automática)
+        if: env.TEM_CHAVE == 'true'
+        working-directory: ios/App
+        run: |
+          set -o pipefail
+          xcodebuild -workspace App.xcworkspace -scheme App -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
+            -authenticationKeyID "${{ secrets.APPLE_API_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.APPLE_API_ISSUER_ID }}" \
+            DEVELOPMENT_TEAM="$EQUIPA" CODE_SIGN_STYLE=Automatic \
+            CURRENT_PROJECT_VERSION="$NUMERO_VERSAO" MARKETING_VERSION=1.0 \
+            archive > "$RUNNER_TEMP/xcode.log" 2>&1
+          tail -5 "$RUNNER_TEMP/xcode.log"
+
+      - name: Enviar para o TestFlight
+        if: env.TEM_CHAVE == 'true'
+        working-directory: ios/App
+        run: |
+          set -o pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$EQUIPA</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict></plist>
+          EOF
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
+            -authenticationKeyID "${{ secrets.APPLE_API_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.APPLE_API_ISSUER_ID }}" > "$RUNNER_TEMP/xcode.log" 2>&1
+          tail -20 "$RUNNER_TEMP/xcode.log"
+
+      # Os registos completos não abrem fora da GitHub; isto põe o essencial dos erros no resumo
+      - name: Resumo dos erros
+        if: failure()
+        run: |
+          if [ -f "$RUNNER_TEMP/xcode.log" ]; then
+            grep -E "error:|Error:|No profiles|No Account|provisioning profile|not found|failed" "$RUNNER_TEMP/xcode.log" \
+              | sort -u | head -25 | sed 's/^/::error::/' || true
+          fi
+          echo "::error::A compilação iOS falhou"
