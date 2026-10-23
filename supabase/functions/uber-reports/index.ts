@@ -3,7 +3,7 @@
 //  { action: "request", report_type, start_date, end_date, unit_id? }  -> Admin/Chefe
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { getUberToken, requestReport, uberSecrets } from "./uber_client.ts";
+import { getUberToken, requestReport, uberSecrets, UBER_ENV } from "./uber_client.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -31,9 +31,9 @@ Deno.serve(async (req) => {
       if (!s.present) return json({ secrets: false, token: false });
       try {
         await getUberToken(admin, !!body.force);
-        return json({ secrets: true, token: true });
+        return json({ secrets: true, token: true, env: UBER_ENV });
       } catch (e) {
-        return json({ secrets: true, token: false, error: (e as Error).message });
+        return json({ secrets: true, token: false, env: UBER_ENV, error: (e as Error).message });
       }
     }
 

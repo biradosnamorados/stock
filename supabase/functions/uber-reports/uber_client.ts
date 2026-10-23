@@ -3,8 +3,11 @@
 // na tabela uber_tokens (só acessível com a service role).
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 
-export const UBER_API = "https://api.uber.com";
-const TOKEN_URL = "https://auth.uber.com/oauth/v2/token";
+// A app de teste ("TEST APP") só funciona no sandbox; em produção definir UBER_ENV=production.
+const PROD = (Deno.env.get("UBER_ENV") ?? "sandbox").toLowerCase() === "production";
+export const UBER_ENV = PROD ? "production" : "sandbox";
+export const UBER_API = PROD ? "https://api.uber.com" : "https://test-api.uber.com";
+const TOKEN_URL = PROD ? "https://auth.uber.com/oauth/v2/token" : "https://sandbox-login.uber.com/oauth/v2/token";
 
 export function uberSecrets() {
   const id = Deno.env.get("UBER_CLIENT_ID");
