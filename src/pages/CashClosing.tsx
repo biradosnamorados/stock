@@ -316,11 +316,12 @@ export default function CashClosing() {
       const v = fam.get(f)!;
       return { family: f, theo: round2(v.theo), decl: round2(v.decl), diff: round2(v.decl - v.theo) };
     });
-    // as gorjetas em cartão entram no apurado do TPA; descontam-se da diferença
+    // Gorjetas em cartão: o POS regista-as como troco em numerário (o TPA fica certo,
+    // o teórico do numerário desce), mas o dinheiro continua na caixa / máquina de trocos.
+    // Por isso a sobra de dinheiro tem de ser igual às gorjetas registadas.
     const tipsByFamily = new Map<PaymentFamily, number>();
     for (const t of tips) {
-      const f = familyFor(t.payment_method);
-      tipsByFamily.set(f, (tipsByFamily.get(f) ?? 0) + t.amount);
+      tipsByFamily.set('dinheiro', (tipsByFamily.get('dinheiro') ?? 0) + t.amount);
     }
     for (const r of rows) {
       const tip = round2(tipsByFamily.get(r.family) ?? 0);
@@ -348,6 +349,12 @@ export default function CashClosing() {
     }
     if (cashmaticTotal != null && summary.cash && Math.abs(cashmaticTotal - summary.cash.decl) > TOLERANCE) {
       a.push(`Dinheiro declarado (${eur(summary.cash.decl)}) não bate com a máquina de trocos (${eur(cashmaticTotal)})`);
+    }
+    if (cashmaticTotal != null && summary.cash && summary.tipsTotal > 0) {
+      const sobra = round2(cashmaticTotal - summary.cash.theo);
+      if (Math.abs(sobra - summary.tipsTotal) > TOLERANCE) {
+        a.push(`Sobra na máquina de trocos (${eur(sobra)}) não bate com as gorjetas registadas (${eur(summary.tipsTotal)})`);
+      }
     }
     return a;
   }, [summary, cashmaticTotal]);
@@ -703,7 +710,7 @@ export default function CashClosing() {
               <section className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5">
                 <h2 className="font-semibold text-slate-900 flex items-center gap-2"><HandCoins className="w-4 h-4" /> 3. Gorjetas em cartão</h2>
                 <p className="text-sm text-slate-500 mb-3">
-                  Quando o cliente deixa gorjeta no TPA, registe-a aqui com a foto da 2.ª via e do comprovativo. O valor fica explicado na diferença dos cartões e acumula para a equipa.
+                  Quando o cliente deixa gorjeta no Multibanco, o POS dá-a como troco. Registe aqui cada gorjeta com a foto do talão do TPA e da fatura. O total das gorjetas tem de bater com o dinheiro que sobra na caixa.
                 </p>
                 {editable && (
                   <div className="grid grid-cols-2 sm:grid-cols-12 gap-2 items-end mb-3">
@@ -883,7 +890,7 @@ export default function CashClosing() {
                 </table>
                 {summary.tipsTotal > 0 && (
                   <p className="text-xs text-emerald-700 mt-2">
-                    Inclui {eur(summary.tipsTotal)} de gorjetas em cartão{showTheo ? ', já descontadas da diferença' : ''}.
+                    {eur(summary.tipsTotal)} de gorjetas em cartão{showTheo ? ' — o dinheiro a mais na caixa deve ser igual a este valor (já descontado da diferença do dinheiro)' : ''}.
                   </p>
                 )}
                 {showTheo && <p className="text-xs text-slate-400 mt-1">O total não inclui as comissões dos TPAs.</p>}
