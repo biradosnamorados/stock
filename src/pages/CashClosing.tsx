@@ -133,6 +133,15 @@ const num = (s: string) => {
 const todayLisbon = () =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Lisbon' }).format(new Date());
 
+// Dia de trabalho começa às 09:00: um fecho feito depois da meia-noite pertence ao dia anterior
+const businessDateLisbon = () => {
+  const now = new Date();
+  const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Lisbon', hour: '2-digit', hour12: false }).format(now));
+  if (hour >= 9) return todayLisbon();
+  const y = new Date(now.getTime() - 24 * 3600 * 1000);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Lisbon' }).format(y);
+};
+
 const newKey = () => Math.random().toString(36).slice(2);
 
 const toLine = (payment_method: string, family: PaymentFamily, theoretical = 0, declared: number | null = null, source: Line['source'] = 'manual'): Line => ({
@@ -159,7 +168,7 @@ export default function CashClosing() {
   const [params] = useSearchParams();
   const [units, setUnits] = useState<Unit[]>([]);
   const [unitId, setUnitId] = useState<string>('');
-  const [date, setDate] = useState<string>(params.get('date') || todayLisbon());
+  const [date, setDate] = useState<string>(params.get('date') || businessDateLisbon());
 
   const [closing, setClosing] = useState<Closing | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
@@ -773,7 +782,7 @@ export default function CashClosing() {
                 <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
                   <div>
                     <h2 className="font-semibold text-slate-900">4. Máquina de trocos</h2>
-                    <p className="text-sm text-slate-500">Pagamentos registados pela Cashmatic neste dia.</p>
+                    <p className="text-sm text-slate-500">Pagamentos registados pela Cashmatic entre as 09:00 deste dia e as 08:59 do dia seguinte.</p>
                   </div>
                   <button disabled={busy !== null} onClick={syncCashmatic} className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
                     <RefreshCw className={`w-4 h-4 ${busy === 'cashmatic' ? 'animate-spin' : ''}`} /> {busy === 'cashmatic' ? 'A consultar…' : 'Ver recebimentos da máquina de trocos'}
