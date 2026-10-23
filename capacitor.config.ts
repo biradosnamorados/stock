@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appId: 'pt.biradosnamorados.gestao',
   appName: 'Bira Gestão',
   webDir: 'dist',
-  backgroundColor: '#ffffff',
+  backgroundColor: '#14171a',
   ios: { contentInset: 'automatic' },
   android: { allowMixedContent: false },
 };
