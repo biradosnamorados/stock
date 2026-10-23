@@ -347,7 +347,9 @@ export default function CashClosing() {
 
   const cashmaticTotal = useMemo(() => {
     if (!txs.length) return closing?.cashmatic_total ?? null;
-    return round2(txs.filter((t) => t.success !== false && t.end_type === 'normal').reduce((s, t) => s + (t.income_cents ?? 0), 0) / 100);
+    // income_cents vem da base de dados; a resposta do botão "Ver recebimentos" só traz inserido/troco
+    const income = (t: CashmaticTx) => t.income_cents ?? ((t.inserted_cents ?? 0) - (t.dispensed_cents ?? 0));
+    return round2(txs.filter((t) => t.success !== false && t.end_type === 'normal').reduce((s, t) => s + income(t), 0) / 100);
   }, [txs, closing?.cashmatic_total]);
 
   // Total dos pedidos Uber Eats do dia segundo a própria Uber (só Admin/Gerente têm acesso;
