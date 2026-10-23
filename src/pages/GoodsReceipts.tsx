@@ -5,16 +5,26 @@ import { ClipboardList, Plus, Eye, X } from 'lucide-react';
 import GoodsReceiptForm from '../components/GoodsReceiptForm';
 import type { GoodsReceipt } from '../types/goods-receipts';
 
-export default function GoodsReceipts() {
+export default function GoodsReceipts({ embedded = false, refreshKey = 0 }: { embedded?: boolean; refreshKey?: number } = {}) {
   const { profile } = useAuth();
   const [receipts, setReceipts] = useState<GoodsReceipt[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [selectedReceipt, setSelectedReceipt] = useState<GoodsReceipt | null>(null);
 
+  const [photoUrls, setPhotoUrls] = useState<string[]>([]);
+
   useEffect(() => {
     loadReceipts();
-  }, [profile]);
+  }, [profile, refreshKey]);
+
+  useEffect(() => {
+    setPhotoUrls([]);
+    const paths = selectedReceipt?.invoice_photo_paths ?? [];
+    if (!paths.length) return;
+    Promise.all(paths.map(async (p) => (await supabase.storage.from('invoices').createSignedUrl(p, 3600)).data?.signedUrl ?? ''))
+      .then((u) => setPhotoUrls(u.filter(Boolean)));
+  }, [selectedReceipt]);
 
   const loadReceipts = async () => {
     if (!profile?.unit_id) {
@@ -28,6 +38,7 @@ export default function GoodsReceipts() {
         .select(`
           *,
           suppliers(name),
+          purchase_orders(order_number),
           profiles:received_by(full_name),
           goods_receipt_lines(
             id, product_id, qty_ordered, qty_received, unit, batch_code, expiry_date, notes,
@@ -62,12 +73,16 @@ export default function GoodsReceipts() {
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-800">Receção de Mercadoria</h1>
-          <p className="text-slate-600 mt-2">Registo de entregas de fornecedores</p>
-        </div>
+    <div className={embedded ? '' : 'p-6 max-w-7xl mx-auto'}>
+      <div className={`flex items-center justify-between ${embedded ? 'mb-4' : 'mb-8'}`}>
+        {embedded ? (
+          <p className="text-slate-600 text-sm">Mercadoria recebida, com a fatura. Para entregas sem encomenda use <strong>Nova Receção</strong>.</p>
+        ) : (
+          <div>
+            <h1 className="text-3xl font-bold text-slate-800">Receção de Mercadoria</h1>
+            <p className="text-slate-600 mt-2">Registo de entregas de fornecedores</p>
+          </div>
+        )}
         <button
           onClick={() => setShowForm(true)}
           className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
@@ -84,6 +99,7 @@ export default function GoodsReceipts() {
               <tr>
                 <th className="text-left px-6 py-4 text-sm font-semibold text-slate-700">Nº Receção</th>
                 <th className="text-left px-6 py-4 text-sm font-semibold text-slate-700">Fornecedor</th>
+                <th className="text-left px-6 py-4 text-sm font-semibold text-slate-700">Encomenda / Fatura</th>
                 <th className="text-left px-6 py-4 text-sm font-semibold text-slate-700">Recebido Por</th>
                 <th className="text-left px-6 py-4 text-sm font-semibold text-slate-700">Data Receção</th>
                 <th className="text-left px-6 py-4 text-sm font-semibold text-slate-700">Linhas</th>
@@ -93,7 +109,7 @@ export default function GoodsReceipts() {
             <tbody className="divide-y divide-slate-200">
               {receipts.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                  <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
                     <ClipboardList className="w-12 h-12 mx-auto mb-4 text-slate-300" />
                     <p>Sem receções de mercadoria</p>
                   </td>
@@ -105,6 +121,13 @@ export default function GoodsReceipts() {
                       <span className="font-mono text-sm font-medium">{receipt.receipt_number}</span>
                     </td>
                     <td className="px-6 py-4">{receipt.suppliers?.name}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">
+                      <div className="font-mono">{receipt.purchase_orders?.order_number ?? 'Sem encomenda'}</div>
+                      <div className="flex items-center gap-1">
+                        {receipt.invoice_reference || '—'}
+                        {(receipt.invoice_photo_paths?.length ?? 0) > 0 && <span title="Tem foto da fatura">📎</span>}
+                      </div>
+                    </td>
                     <td className="px-6 py-4 text-sm text-slate-600">
                       {receipt.profiles?.full_name || 'Unknown'}
                     </td>
@@ -175,6 +198,34 @@ export default function GoodsReceipts() {
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <span className="text-sm text-slate-600">Encomenda</span>
+                  <p className="font-mono font-semibold">{selectedReceipt.purchase_orders?.order_number ?? 'Sem encomenda'}</p>
+                </div>
+                <div>
+                  <span className="text-sm text-slate-600">Fatura</span>
+                  <p className="font-semibold">
+                    {selectedReceipt.invoice_reference || '—'}
+                    {selectedReceipt.invoice_date ? ` · ${new Date(selectedReceipt.invoice_date + 'T12:00:00').toLocaleDateString('pt-PT')}` : ''}
+                    {selectedReceipt.invoice_total != null ? ` · ${Number(selectedReceipt.invoice_total).toFixed(2)} €` : ''}
+                  </p>
+                </div>
+              </div>
+
+              {photoUrls.length > 0 && (
+                <div>
+                  <span className="text-sm text-slate-600">Fotos da fatura</span>
+                  <div className="flex gap-2 mt-2 flex-wrap">
+                    {photoUrls.map((u, i) => (
+                      <a key={i} href={u} target="_blank" rel="noreferrer">
+                        <img src={u} alt={`Página ${i + 1}`} className="w-24 h-32 object-cover rounded-lg border border-slate-300" />
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {selectedReceipt.notes && (
                 <div>
                   <span className="text-sm text-slate-600">Notas</span>
@@ -216,7 +267,7 @@ export default function GoodsReceipts() {
                           </td>
                           <td className="px-4 py-2 text-sm font-mono">{line.batch_code}</td>
                           <td className="px-4 py-2 text-sm">
-                            {new Date(line.expiry_date).toLocaleDateString('pt-PT')}
+                            {line.expiry_date ? new Date(line.expiry_date).toLocaleDateString('pt-PT') : '—'}
                           </td>
                         </tr>
                       ))}

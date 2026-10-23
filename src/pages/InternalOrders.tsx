@@ -425,7 +425,8 @@ export default function InternalOrders() {
               <TruckIcon className="w-5 h-5 text-slate-600" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-slate-800">Encomendas Internas</h1>
+              <h1 className="text-lg font-bold text-slate-800">Pedidos ao CDP / CDO</h1>
+              <p className="text-xs text-slate-500">Encomendas internas dos restaurantes ao Centro de Produção e ao Centro de Operações</p>
               {actionNeeded.length > 0 && (
                 <p className="text-xs text-amber-600 font-medium">{actionNeeded.length} a requerer ação</p>
               )}

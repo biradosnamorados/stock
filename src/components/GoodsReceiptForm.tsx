@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
-import { X, Plus, Trash2, AlertTriangle } from 'lucide-react';
+import { X, Plus, Trash2, AlertTriangle, Camera, Sparkles, FileText, Loader2, CheckCircle2 } from 'lucide-react';
+import { compressImage } from '../lib/images';
 import type { GoodsReceiptLine, PurchaseOrderForReceipt, ProductPurchaseConfig } from '../types/goods-receipts';
 
 interface Supplier {
@@ -19,9 +20,34 @@ interface Product {
 interface GoodsReceiptFormProps {
   onClose: () => void;
   onSuccess: () => void;
+  /** abrir já com esta encomenda escolhida (botão "Receber" na encomenda) */
+  initialOrderId?: string;
 }
 
-export default function GoodsReceiptForm({ onClose, onSuccess }: GoodsReceiptFormProps) {
+interface InvoiceRead {
+  invoice_number: string | null;
+  invoice_date: string | null;
+  supplier_name: string | null;
+  total_with_vat: number | null;
+  warnings?: string[];
+  lines: Array<{
+    description: string;
+    quantity: number;
+    unit: string | null;
+    unit_price: number | null;
+    batch: string | null;
+    expiry_date: string | null;
+    qty_in_purchase_units: number | null;
+    price_per_purchase_unit: number | null;
+    confidence: 'alta' | 'media' | 'baixa';
+    product_id: string | null;
+    order_line_id: string | null;
+    product_name: string | null;
+    product_code: string | null;
+  }>;
+}
+
+export default function GoodsReceiptForm({ onClose, onSuccess, initialOrderId }: GoodsReceiptFormProps) {
   const { profile } = useAuth();
   const [loading, setLoading] = useState(false);
   const [receiptType, setReceiptType] = useState<'with_order' | 'without_order'>('with_order');
@@ -29,7 +55,16 @@ export default function GoodsReceiptForm({ onClose, onSuccess }: GoodsReceiptFor
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [configsByProduct, setConfigsByProduct] = useState<Record<string, ProductPurchaseConfig[]>>({});
-  const [selectedOrderId, setSelectedOrderId] = useState('');
+  const [selectedOrderId, setSelectedOrderId] = useState(initialOrderId ?? '');
+  const [invoiceRef, setInvoiceRef] = useState('');
+  const [invoiceDate, setInvoiceDate] = useState('');
+  const [invoiceTotal, setInvoiceTotal] = useState<number | null>(null);
+  const [photos, setPhotos] = useState<{ path: string; url: string; name: string }[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [reading, setReading] = useState(false);
+  const [readMsg, setReadMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [invoiceRead, setInvoiceRead] = useState<InvoiceRead | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [receivedAt, setReceivedAt] = useState(new Date().toISOString().slice(0, 16));
   const [notes, setNotes] = useState('');
@@ -58,7 +93,7 @@ export default function GoodsReceiptForm({ onClose, onSuccess }: GoodsReceiptFor
     if (selectedOrderId) {
       loadOrderLines();
     }
-  }, [selectedOrderId]);
+  }, [selectedOrderId, purchaseOrders]);
 
   const loadPurchaseOrders = async () => {
     if (!profile?.unit_id) return;
@@ -260,6 +295,114 @@ export default function GoodsReceiptForm({ onClose, onSuccess }: GoodsReceiptFor
     updateLine(index, 'product_id', productId);
   };
 
+  // ── fatura: fotos e leitura automática ──
+  const uploadPhotos = async (files: FileList | null) => {
+    if (!files?.length || !profile?.unit_id) return;
+    setUploading(true);
+    setReadMsg(null);
+    try {
+      const month = new Date().toISOString().slice(0, 7);
+      const added: { path: string; url: string; name: string }[] = [];
+      for (const f of Array.from(files)) {
+        const file = f.type.startsWith('image/') ? await compressImage(f, 1800, 0.82) : f;
+        const ext = file.type === 'application/pdf' ? 'pdf' : 'jpg';
+        const path = `${profile.unit_id}/${month}/${crypto.randomUUID()}.${ext}`;
+        const { error } = await supabase.storage.from('invoices').upload(path, file, { contentType: file.type || 'image/jpeg' });
+        if (error) throw error;
+        added.push({ path, url: file.type === 'application/pdf' ? '' : URL.createObjectURL(file), name: f.name });
+      }
+      setPhotos((p) => [...p, ...added]);
+    } catch (err: any) {
+      alert('Erro ao enviar a foto: ' + (err?.message ?? err));
+    } finally {
+      setUploading(false);
+      if (photoInputRef.current) photoInputRef.current.value = '';
+    }
+  };
+
+  const readInvoice = async () => {
+    if (!photos.length) return;
+    if (receiptType === 'without_order' && !selectedSupplierId) {
+      setReadMsg({ ok: false, text: 'Escolha primeiro o fornecedor, para eu saber que produtos procurar.' });
+      return;
+    }
+    setReading(true);
+    setReadMsg(null);
+    const { data, error } = await supabase.functions.invoke('invoice-extract', {
+      body: {
+        paths: photos.map((p) => p.path),
+        purchase_order_id: receiptType === 'with_order' ? selectedOrderId || null : null,
+        supplier_id: selectedSupplierId || null,
+      },
+    });
+    setReading(false);
+    let errText = data?.error as string | undefined;
+    if (error && !errText) {
+      try { errText = (await (error as any).context?.json?.())?.error; } catch { /* */ }
+      errText = errText ?? error.message;
+    }
+    if (errText) { setReadMsg({ ok: false, text: errText }); return; }
+    applyInvoice(data as InvoiceRead);
+  };
+
+  const applyInvoice = (r: InvoiceRead) => {
+    setInvoiceRead(r);
+    if (r.invoice_number) setInvoiceRef(r.invoice_number);
+    if (r.invoice_date) setInvoiceDate(r.invoice_date);
+    if (r.total_with_vat != null) setInvoiceTotal(r.total_with_vat);
+
+    const qtyOf = (l: InvoiceRead['lines'][number]) => l.qty_in_purchase_units ?? l.quantity;
+    const priceOf = (l: InvoiceRead['lines'][number]) => l.price_per_purchase_unit ?? l.unit_price ?? 0;
+    const matched = r.lines.filter((l) => l.product_id);
+
+    setLines((current) => {
+      let next = current.map((line) => {
+        const inv = matched.filter((l) => (line.order_line_id && l.order_line_id === line.order_line_id) || l.product_id === line.product_id);
+        if (!inv.length) {
+          return receiptType === 'with_order' ? { ...line, qty_received: 0, from_invoice: 'missing' as const } : line;
+        }
+        const q = inv.reduce((s, l) => s + qtyOf(l), 0);
+        const first = inv[0];
+        return {
+          ...line,
+          qty_received: Math.round(q * 1000) / 1000,
+          unit_price: Math.round(priceOf(first) * 10000) / 10000 || line.unit_price,
+          batch_code: first.batch || line.batch_code,
+          expiry_date: first.expiry_date || line.expiry_date,
+          from_invoice: first.confidence,
+          invoice_description: inv.map((l) => l.description).join(' + '),
+        };
+      });
+      // produtos na fatura que não estavam nas linhas (fora da encomenda, ou receção sem encomenda)
+      const extras = matched.filter((l) => !next.some((x) => (l.order_line_id && x.order_line_id === l.order_line_id) || x.product_id === l.product_id));
+      const seen = new Set<string>();
+      const extraLines = extras.filter((l) => !seen.has(l.product_id!) && seen.add(l.product_id!)).map((l) => {
+        const configs = configsByProduct[l.product_id!] || [];
+        const def = configs.find((c) => c.is_default) || configs[0] || null;
+        const base = { ...createEmptyLine(), product_id: l.product_id!, product_name: l.product_name ?? undefined, product_code: l.product_code ?? undefined };
+        const withCfg = def ? applyConfigToLine(base, def) : { ...base, unit: products.find((p) => p.id === l.product_id)?.unit ?? 'un' };
+        return {
+          ...withCfg,
+          qty_received: Math.round(qtyOf(l) * 1000) / 1000,
+          unit_price: Math.round(priceOf(l) * 10000) / 10000,
+          batch_code: l.batch || '',
+          expiry_date: l.expiry_date || '',
+          notes: receiptType === 'with_order' ? 'Não estava na encomenda' : '',
+          from_invoice: l.confidence,
+          invoice_description: l.description,
+        };
+      });
+      if (receiptType === 'without_order') next = next.filter((x) => x.product_id);
+      return [...next, ...extraLines];
+    });
+
+    const unmatched = r.lines.filter((l) => !l.product_id).length;
+    setReadMsg({
+      ok: true,
+      text: `Fatura lida: ${matched.length} linha(s) associada(s)${unmatched ? `, ${unmatched} sem produto correspondente (ver abaixo)` : ''}. Confirme as quantidades, lotes e validades antes de registar.`,
+    });
+  };
+
   const validateForm = () => {
     if (receiptType === 'with_order' && !selectedOrderId) {
       alert('Selecione uma encomenda');
@@ -324,7 +467,12 @@ export default function GoodsReceiptForm({ onClose, onSuccess }: GoodsReceiptFor
           supplier_id: selectedSupplierId,
           received_by: profile.id,
           received_at: receivedAt,
-          notes: notes || null
+          notes: notes || null,
+          invoice_reference: invoiceRef.trim() || null,
+          invoice_date: invoiceDate || null,
+          invoice_total: invoiceTotal,
+          invoice_photo_paths: photos.map((p) => p.path),
+          invoice_extraction: invoiceRead as any,
         })
         .select()
         .single();
@@ -449,10 +597,10 @@ export default function GoodsReceiptForm({ onClose, onSuccess }: GoodsReceiptFor
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-6xl w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white sm:rounded-xl shadow-xl max-w-6xl w-full h-full sm:h-auto sm:max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-slate-800">Registar Receção de Mercadoria</h2>
+          <h2 className="text-xl sm:text-2xl font-bold text-slate-800">Receber mercadoria</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
             <X className="w-6 h-6" />
           </button>
@@ -540,6 +688,88 @@ export default function GoodsReceiptForm({ onClose, onSuccess }: GoodsReceiptFor
             </div>
           </div>
 
+          {/* ── Fatura ── */}
+          <div className="rounded-xl border border-slate-200 p-4 space-y-3 bg-slate-50/60">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <h3 className="font-semibold text-slate-800 flex items-center gap-2"><FileText className="w-5 h-5" /> Fatura / guia do fornecedor</h3>
+              <div className="flex gap-2">
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/*,application/pdf"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => uploadPhotos(e.target.files)}
+                />
+                <button type="button" onClick={() => photoInputRef.current?.click()} disabled={uploading}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
+                  {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                  {photos.length ? 'Mais uma página' : 'Fotografar fatura'}
+                </button>
+                <button type="button" onClick={readInvoice} disabled={!photos.length || reading || uploading}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 disabled:opacity-40">
+                  {reading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  {reading ? 'A ler a fatura…' : 'Preencher a partir da fatura'}
+                </button>
+              </div>
+            </div>
+
+            {photos.length > 0 && (
+              <div className="flex gap-2 flex-wrap">
+                {photos.map((p, i) => (
+                  <div key={p.path} className="relative">
+                    {p.url ? (
+                      <img src={p.url} alt={`Página ${i + 1}`} className="w-20 h-24 object-cover rounded-lg border border-slate-300" />
+                    ) : (
+                      <div className="w-20 h-24 rounded-lg border border-slate-300 bg-white flex items-center justify-center text-xs text-slate-500">PDF</div>
+                    )}
+                    <button type="button" onClick={() => setPhotos((ph) => ph.filter((x) => x.path !== p.path))}
+                      className="absolute -top-2 -right-2 bg-white border border-slate-300 rounded-full p-0.5 text-slate-500 hover:text-red-600">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">N.º da fatura / guia</label>
+                <input value={invoiceRef} onChange={(e) => setInvoiceRef(e.target.value)} placeholder="Ex.: FT 2026/1234"
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Data da fatura</label>
+                <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Total c/ IVA (€)</label>
+                <input type="number" step="0.01" value={invoiceTotal ?? ''} onChange={(e) => setInvoiceTotal(e.target.value ? parseFloat(e.target.value) : null)}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white" />
+              </div>
+            </div>
+
+            {readMsg && (
+              <div className={`p-3 rounded-lg text-sm flex gap-2 ${readMsg.ok ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-amber-50 border border-amber-200 text-amber-800'}`}>
+                {readMsg.ok ? <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" /> : <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />}
+                <span>{readMsg.text}</span>
+              </div>
+            )}
+
+            {invoiceRead && (invoiceRead.lines.some((l) => !l.product_id) || (invoiceRead.warnings?.length ?? 0) > 0) && (
+              <div className="p-3 rounded-lg bg-white border border-amber-200 text-sm space-y-1">
+                {invoiceRead.lines.filter((l) => !l.product_id).map((l, i) => (
+                  <p key={i} className="text-amber-800">• Na fatura mas sem produto associado: <strong>{l.description}</strong> — {l.quantity} {l.unit ?? ''}{l.unit_price != null ? ` × ${l.unit_price.toFixed(2)} €` : ''}</p>
+                ))}
+                {invoiceRead.warnings?.map((w, i) => <p key={`w${i}`} className="text-slate-600">• {w}</p>)}
+                {receiptType === 'without_order' && invoiceRead.lines.some((l) => !l.product_id) && (
+                  <p className="text-slate-500 text-xs pt-1">Se o produto existir, associe-o ao fornecedor em Ajustes → Fornecedores para ser reconhecido da próxima vez.</p>
+                )}
+              </div>
+            )}
+          </div>
+
           {missingItems.length > 0 && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
               <div className="flex items-start space-x-2">
@@ -579,7 +809,21 @@ export default function GoodsReceiptForm({ onClose, onSuccess }: GoodsReceiptFor
                 const configs = configsByProduct[line.product_id] || [];
 
                 return (
-                  <div key={index} className="p-4 bg-slate-50 rounded-lg">
+                  <div key={index} className={`p-4 rounded-lg ${line.from_invoice === 'missing' ? 'bg-amber-50 border border-amber-200' : line.from_invoice === 'baixa' ? 'bg-orange-50 border border-orange-200' : 'bg-slate-50'}`}>
+                    {line.from_invoice && (
+                      <p className="text-xs mb-2 flex items-center gap-1.5">
+                        {line.from_invoice === 'missing' ? (
+                          <span className="text-amber-800 font-medium">Não aparece na fatura — confirme se veio.</span>
+                        ) : (
+                          <>
+                            <span className={`px-1.5 py-0.5 rounded font-medium ${line.from_invoice === 'alta' ? 'bg-emerald-100 text-emerald-800' : line.from_invoice === 'media' ? 'bg-amber-100 text-amber-800' : 'bg-orange-100 text-orange-800'}`}>
+                              Da fatura{line.from_invoice !== 'alta' ? ' · confirmar' : ''}
+                            </span>
+                            {line.invoice_description && <span className="text-slate-500 truncate">“{line.invoice_description}”</span>}
+                          </>
+                        )}
+                      </p>
+                    )}
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
                       <div className="md:col-span-3">
                         <label className="block text-xs font-medium text-slate-600 mb-1">

@@ -18,7 +18,18 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   }
 
   if (!user) {
+    // guardar o destino (ex.: /scanner?code=… vindo de um QR) para voltar lá depois do login
+    if (location.pathname !== '/' && location.pathname !== '/login') {
+      try { sessionStorage.setItem('bn_after_login', location.pathname + location.search); } catch { /* */ }
+    }
     return <Navigate to="/login" replace />;
+  }
+
+  let afterLogin: string | null = null;
+  try { afterLogin = sessionStorage.getItem('bn_after_login'); } catch { /* */ }
+  if (afterLogin && location.pathname === '/') {
+    try { sessionStorage.removeItem('bn_after_login'); } catch { /* */ }
+    return <Navigate to={afterLogin} replace />;
   }
 
   const accountStatus = (profile as any)?.account_status;

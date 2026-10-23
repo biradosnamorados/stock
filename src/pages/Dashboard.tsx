@@ -574,12 +574,12 @@ export default function Dashboard() {
   const visibleNotices = notices.filter(n => !dismissedNotices.has(n.id));
 
   const quickActions = [
-    { label: 'Ler QR',       icon: QrCode,       path: '/qr-scanner',      color: 'bg-blue-600 hover:bg-blue-700 text-white' },
+    { label: 'Ler QR',       icon: QrCode,       path: '/scanner',         color: 'bg-blue-600 hover:bg-blue-700 text-white' },
     { label: 'HACCP',        icon: ClipboardList, path: '/haccp',           color: 'bg-teal-600 hover:bg-teal-700 text-white',   badge: overdue.haccpOverdue || undefined },
     { label: 'Tarefas',      icon: CheckSquare,   path: '/mandatory-tasks', color: 'bg-green-600 hover:bg-green-700 text-white',  badge: overdue.mandatoryOverdue || undefined },
     { label: 'Enc. Internas',icon: ShoppingCart,  path: '/internal-orders', color: 'bg-slate-700 hover:bg-slate-800 text-white',  badge: pendingOrders.length || undefined },
-    { label: 'Enc. Fornec.', icon: Package,       path: '/purchase-orders', color: 'bg-amber-600 hover:bg-amber-700 text-white',  badge: pendingPurchaseOrders.length || undefined },
-    { label: 'Receção',      icon: Truck,         path: '/goods-receipts',  color: 'bg-orange-600 hover:bg-orange-700 text-white' },
+    { label: 'Compras',      icon: Package,       path: '/purchases', color: 'bg-amber-600 hover:bg-amber-700 text-white',  badge: pendingPurchaseOrders.length || undefined },
+    { label: 'Receber',     icon: Truck,         path: '/purchases?tab=rececoes', color: 'bg-orange-600 hover:bg-orange-700 text-white' },
   ];
 
   return (
@@ -821,12 +821,12 @@ export default function Dashboard() {
             title="Encomendas a Fornecedores"
             icon={Package}
             count={pendingPurchaseOrders.length}
-            onNavigate={() => navigate('/purchase-orders')}
+            onNavigate={() => navigate('/purchases')}
           >
             {pendingPurchaseOrders.length === 0
               ? <EmptyState message="Sem encomendas pendentes a fornecedores" />
               : pendingPurchaseOrders.slice(0, 5).map(o => (
-                <button key={o.id} onClick={() => navigate('/purchase-orders')}
+                <button key={o.id} onClick={() => navigate('/purchases')}
                   className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-slate-50 transition text-left">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-slate-800">{o.order_number}</p>

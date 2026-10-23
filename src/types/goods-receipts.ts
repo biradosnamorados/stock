@@ -24,6 +24,8 @@ export interface GoodsReceiptLine {
   purchase_config_id?: string | null;
   purchase_unit?: string | null;
   purchase_unit_quantity?: number | null;
+  from_invoice?: 'alta' | 'media' | 'baixa' | 'missing' | null;
+  invoice_description?: string | null;
 }
 
 export interface GoodsReceipt {
@@ -36,6 +38,11 @@ export interface GoodsReceipt {
   received_at: string;
   notes: string | null;
   created_at: string;
+  invoice_reference?: string | null;
+  invoice_date?: string | null;
+  invoice_total?: number | null;
+  invoice_photo_paths?: string[];
+  purchase_orders?: { order_number: string } | null;
   suppliers?: { name: string };
   profiles?: { full_name: string };
   goods_receipt_lines?: GoodsReceiptLine[];

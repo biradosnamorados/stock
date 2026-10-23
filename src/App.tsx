@@ -10,10 +10,7 @@ import Production from './pages/Production';
 import Packaging from './pages/Packaging';
 import Stock from './pages/Stock';
 import InternalOrders from './pages/InternalOrders';
-import PurchaseOrders from './pages/PurchaseOrders';
-import GoodsReceipts from './pages/GoodsReceipts';
 import Scanner from './pages/Scanner';
-import QRScanner from './pages/QRScanner';
 import Products from './pages/Products';
 import Suppliers from './pages/Suppliers';
 import Users from './pages/Users';
@@ -32,6 +29,7 @@ import CashClosing from './pages/CashClosing';
 import CashmaticSettings from './pages/CashmaticSettings';
 import CashClosingReport from './pages/CashClosingReport';
 import UberReports from './pages/UberReports';
+import Purchases from './pages/Purchases';
 
 function App() {
   return (
@@ -63,10 +61,11 @@ function App() {
             <Route path="packaging" element={<Packaging />} />
             <Route path="stock" element={<Stock />} />
             <Route path="internal-orders" element={<InternalOrders />} />
-            <Route path="purchase-orders" element={<PurchaseOrders />} />
-            <Route path="goods-receipts" element={<GoodsReceipts />} />
+            <Route path="purchases" element={<Purchases />} />
+            <Route path="purchase-orders" element={<Navigate to="/purchases" replace />} />
+            <Route path="goods-receipts" element={<Navigate to="/purchases?tab=rececoes" replace />} />
             <Route path="scanner" element={<Scanner />} />
-            <Route path="qr-scanner" element={<QRScanner />} />
+            <Route path="qr-scanner" element={<Navigate to="/scanner" replace />} />
             <Route path="price-analysis" element={<PriceAnalysis />} />
             <Route path="products" element={<Products />} />
             <Route path="suppliers" element={<Suppliers />} />

@@ -1,17 +1,20 @@
 import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { ShoppingCart, Plus, Eye, Copy, Send, FileText, MoreVertical, X } from 'lucide-react';
+import { ShoppingCart, Plus, Eye, Copy, Send, FileText, MoreVertical, X, PackageCheck } from 'lucide-react';
+import GoodsReceiptForm from '../components/GoodsReceiptForm';
 import PurchaseOrderForm from '../components/PurchaseOrderForm';
 import type { PurchaseOrder } from '../types/purchase-orders';
 
-export default function PurchaseOrders() {
+export default function PurchaseOrders({ embedded = false, onReceived }: { embedded?: boolean; onReceived?: () => void } = {}) {
   const { profile } = useAuth();
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingOrder, setEditingOrder] = useState<string | undefined>(undefined);
   const [selectedOrder, setSelectedOrder] = useState<PurchaseOrder | null>(null);
+  const [receivingOrderId, setReceivingOrderId] = useState<string | null>(null);
+  const [orderReceipts, setOrderReceipts] = useState<any[]>([]);
   const [showActions, setShowActions] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -158,6 +161,25 @@ export default function PurchaseOrders() {
     }
   };
 
+  const canReceive = (status: string) => ['sent', 'confirmed', 'partially_received'].includes(status);
+
+  // receções (e faturas) ligadas à encomenda aberta nos detalhes
+  useEffect(() => {
+    setOrderReceipts([]);
+    if (!selectedOrder) return;
+    supabase.from('goods_receipts')
+      .select('id, receipt_number, received_at, invoice_reference, invoice_total, invoice_photo_paths, profiles:received_by(full_name)')
+      .eq('purchase_order_id', selectedOrder.id).order('received_at')
+      .then(async ({ data }) => {
+        const rows = await Promise.all((data ?? []).map(async (r: any) => {
+          const urls = await Promise.all((r.invoice_photo_paths ?? []).map(async (p: string) =>
+            (await supabase.storage.from('invoices').createSignedUrl(p, 3600)).data?.signedUrl ?? null));
+          return { ...r, urls: urls.filter(Boolean) };
+        }));
+        setOrderReceipts(rows);
+      });
+  }, [selectedOrder]);
+
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       draft: 'bg-slate-100 text-slate-700',
@@ -194,12 +216,16 @@ export default function PurchaseOrders() {
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-800">Encomendas Fornecedores</h1>
-          <p className="text-slate-600 mt-2">Encomendas a fornecedores externos</p>
-        </div>
+    <div className={embedded ? '' : 'p-6 max-w-7xl mx-auto'}>
+      <div className={`flex items-center justify-between ${embedded ? 'mb-4' : 'mb-8'}`}>
+        {embedded ? (
+          <p className="text-slate-600 text-sm">Encomendas enviadas por email aos fornecedores. Quando a mercadoria chega, use <strong>Receber</strong>.</p>
+        ) : (
+          <div>
+            <h1 className="text-3xl font-bold text-slate-800">Encomendas Fornecedores</h1>
+            <p className="text-slate-600 mt-2">Encomendas a fornecedores externos</p>
+          </div>
+        )}
         <button
           onClick={() => {
             setEditingOrder(undefined);
@@ -258,7 +284,15 @@ export default function PurchaseOrders() {
                     <td className="px-6 py-4 text-sm text-slate-600">
                       {order.purchase_order_lines?.length || 0} produtos
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-6 py-4 text-right whitespace-nowrap">
+                      {canReceive(order.status) && (
+                        <button
+                          onClick={() => setReceivingOrderId(order.id)}
+                          className="inline-flex items-center gap-1.5 mr-2 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium"
+                        >
+                          <PackageCheck className="w-4 h-4" /> Receber
+                        </button>
+                      )}
                       <button
                         onClick={(e) => {
                           const rect = e.currentTarget.getBoundingClientRect();
@@ -468,6 +502,45 @@ export default function PurchaseOrders() {
                 </div>
               </div>
 
+              <div>
+                <h3 className="font-semibold text-lg mb-3">Receções e faturas</h3>
+                {orderReceipts.length === 0 ? (
+                  <div className="flex items-center justify-between gap-3 p-4 bg-slate-50 rounded-lg">
+                    <p className="text-sm text-slate-600">Ainda não foi recebida.</p>
+                    {canReceive(selectedOrder.status) && (
+                      <button onClick={() => { setReceivingOrderId(selectedOrder.id); setSelectedOrder(null); }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-medium">
+                        <PackageCheck className="w-4 h-4" /> Receber
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {orderReceipts.map((r) => (
+                      <div key={r.id} className="p-4 bg-slate-50 rounded-lg">
+                        <p className="text-sm text-slate-800">
+                          <span className="font-mono font-medium">{r.receipt_number}</span> · {new Date(r.received_at).toLocaleString('pt-PT')}
+                          {r.profiles?.full_name ? ` · ${r.profiles.full_name}` : ''}
+                        </p>
+                        <p className="text-sm text-slate-600 mt-1">
+                          Fatura: {r.invoice_reference || '—'}{r.invoice_total != null ? ` · ${Number(r.invoice_total).toFixed(2)} € c/ IVA` : ''}
+                        </p>
+                        {r.urls.length > 0 && (
+                          <div className="flex gap-2 mt-2 flex-wrap">
+                            {r.urls.map((u: string, i: number) => (
+                              <a key={i} href={u} target="_blank" rel="noreferrer" className="block">
+                                <img src={u} alt={`Fatura página ${i + 1}`} className="w-16 h-20 object-cover rounded border border-slate-300" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+                                <span className="text-xs text-blue-700 underline">Página {i + 1}</span>
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {selectedOrder.resend_count > 0 && (
                 <div className="bg-blue-50 p-4 rounded-lg">
                   <p className="text-sm text-blue-800">
@@ -479,6 +552,18 @@ export default function PurchaseOrders() {
             </div>
           </div>
         </div>
+      )}
+
+      {receivingOrderId && (
+        <GoodsReceiptForm
+          initialOrderId={receivingOrderId}
+          onClose={() => setReceivingOrderId(null)}
+          onSuccess={() => {
+            setReceivingOrderId(null);
+            loadOrders();
+            onReceived?.();
+          }}
+        />
       )}
     </div>
   );
