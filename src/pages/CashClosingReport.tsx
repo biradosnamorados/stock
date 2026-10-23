@@ -65,8 +65,8 @@ function totals(row: Row) {
 }
 
 export default function CashClosingReport() {
-  const { profile } = useAuth();
-  const isManager = profile?.role === 'Admin' || profile?.role === 'Chefe';
+  const { profile, hasPermission } = useAuth();
+  const isManager = profile?.role === 'Admin' || hasPermission('cash_closing_manage');
   const [units, setUnits] = useState<Unit[]>([]);
   const [unitId, setUnitId] = useState<string>('all');
   const [from, setFrom] = useState(monthStart());

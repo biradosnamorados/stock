@@ -159,9 +159,9 @@ const diffClass = (d: number) =>
 // ───────────────────────── página ─────────────────────────
 
 export default function CashClosing() {
-  const { profile } = useAuth();
+  const { profile, hasPermission } = useAuth();
   const isAdmin = profile?.role === 'Admin';
-  const isManager = isAdmin || profile?.role === 'Chefe';
+  const isManager = isAdmin || hasPermission('cash_closing_manage');
   // Fecho cego: a equipa indica só o apurado; teórico e diferenças só para Gerente/Admin
   const showTheo = isManager;
 

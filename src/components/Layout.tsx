@@ -39,13 +39,12 @@ export default function Layout() {
   const groups: NavGroup[] = [
     { key: 'inicio', name: 'Início', icon: LayoutDashboard, items: [
       { name: 'Painel', href: '/', icon: LayoutDashboard, moduleCode: 'dashboard' },
-      { name: 'Ler QR', href: '/scanner', icon: QrCode, moduleCode: 'stock' },
+      { name: 'Ler QR', href: '/scanner', icon: QrCode, moduleCode: 'scanner' },
     ] },
     { key: 'caixa', name: 'Caixa', icon: Wallet, items: [
-      // Fecho de caixa: qualquer pessoa da equipa de Sala, gerentes (Chefe) e Admin
-      { name: 'Fecho de Caixa', href: '/cash-closing', icon: Wallet, moduleCode: 'cash_closing', alsoFor: { roles: ['Chefe'], departments: ['Sala'] } },
-      { name: 'Histórico de Fechos', href: '/cash-closing-report', icon: BarChart3, moduleCode: 'cash_closing', roles: ['Admin', 'Chefe'] },
-      { name: 'Uber Eats', href: '/uber', icon: Bike, moduleCode: 'cash_closing', roles: ['Admin', 'Chefe'] },
+      { name: 'Fecho de Caixa', href: '/cash-closing', icon: Wallet, moduleCode: 'cash_closing' },
+      { name: 'Histórico de Fechos', href: '/cash-closing-report', icon: BarChart3, moduleCode: 'cash_closing_manage' },
+      { name: 'Uber Eats', href: '/uber', icon: Bike, moduleCode: 'uber' },
     ] },
     { key: 'encomendas', name: 'Encomendas', icon: TruckIcon, items: [
       { name: 'Pedidos ao CDP / CDO', href: '/internal-orders', icon: TruckIcon, moduleCode: 'internal_orders' },
@@ -70,7 +69,7 @@ export default function Layout() {
       { name: 'Fornecedores', href: '/suppliers', icon: Building2, moduleCode: 'suppliers' },
       { name: 'Utilizadores', href: '/users', icon: Users, moduleCode: 'users' },
       { name: 'Pedidos de Registo', href: '/pending-registrations', icon: UserPlus, moduleCode: 'users', badge: pendingCount },
-      { name: 'Perfis de Acesso', href: '/access-profiles', icon: Shield, moduleCode: 'users' },
+      { name: 'Níveis de Acesso', href: '/access-profiles', icon: Shield, moduleCode: 'access_rules' },
       { name: 'Máquina de Trocos', href: '/cashmatic-settings', icon: Banknote, moduleCode: 'cashmatic_settings' },
       { name: 'Email (SMTP)', href: '/smtp-settings', icon: Mail, moduleCode: 'smtp_settings' },
       { name: 'Importar Dados', href: '/import', icon: Upload, moduleCode: 'import' },

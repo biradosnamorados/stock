@@ -3,8 +3,8 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { UserCheck, UserX, Clock, CheckCircle2, XCircle, Building2, Briefcase, Shield, Search, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
+import { LEVELS } from '../lib/access';
 
-interface AccessProfile { id: string; name: string; color: string }
 interface Unit { id: string; name: string }
 interface Department { id: string; name: string }
 
@@ -28,7 +28,6 @@ type FilterStatus = 'pending' | 'approved' | 'rejected' | 'all';
 export default function PendingRegistrations() {
   const { profile: authProfile } = useAuth();
   const [requests, setRequests] = useState<Request[]>([]);
-  const [accessProfiles, setAccessProfiles] = useState<AccessProfile[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,7 +37,7 @@ export default function PendingRegistrations() {
   const [approvingReq, setApprovingReq] = useState<Request | null>(null);
   const [approveUnitId, setApproveUnitId] = useState('');
   const [approveDeptId, setApproveDeptId] = useState('');
-  const [approveProfileId, setApproveProfileId] = useState('');
+  const [approveLevel, setApproveLevel] = useState('colaborador');
   const [approving, setApproving] = useState(false);
 
   const [rejectingReq, setRejectingReq] = useState<Request | null>(null);
@@ -50,17 +49,15 @@ export default function PendingRegistrations() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [reqRes, apRes, unitsRes, deptsRes] = await Promise.all([
+      const [reqRes, unitsRes, deptsRes] = await Promise.all([
         supabase
           .from('registration_requests')
           .select('*, units(name), departments(name)')
           .order('requested_at', { ascending: false }),
-        supabase.from('access_profiles').select('id, name, color').eq('active', true).order('name'),
         supabase.from('units').select('id, name').order('name'),
-        supabase.from('departments').select('id, name').order('name'),
+        supabase.from('departments').select('id, name').eq('active', true).order('name'),
       ]);
       if (reqRes.data) setRequests(reqRes.data as Request[]);
-      if (apRes.data) setAccessProfiles(apRes.data);
       if (unitsRes.data) setUnits(unitsRes.data);
       if (deptsRes.data) setDepartments(deptsRes.data);
     } finally {
@@ -72,21 +69,22 @@ export default function PendingRegistrations() {
     setApprovingReq(req);
     setApproveUnitId(req.unit_id || '');
     setApproveDeptId(req.department_id || '');
-    setApproveProfileId('');
+    setApproveLevel('colaborador');
   };
 
   const handleApprove = async () => {
     if (!approvingReq || !authProfile) return;
     setApproving(true);
     try {
-      await supabase.from('profiles').update({
+      const { error: upErr } = await supabase.from('profiles').update({
         active: true,
         account_status: 'active',
         unit_id: approveUnitId || null,
         department_id: approveDeptId || null,
-        access_profile_id: approveProfileId || null,
+        access_level: approveLevel,
         updated_at: new Date().toISOString(),
       }).eq('id', approvingReq.profile_id);
+      if (upErr) { alert('Erro ao aprovar: ' + upErr.message); return; }
 
       await supabase.from('registration_requests').update({
         reviewed_by: authProfile.id,
@@ -318,28 +316,27 @@ export default function PendingRegistrations() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Departamento</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Equipa</label>
                 <select
                   value={approveDeptId}
                   onChange={(e) => setApproveDeptId(e.target.value)}
                   className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  <option value="">Sem departamento</option>
+                  <option value="">Sem equipa</option>
                   {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </div>
               <div>
                 <label className="flex items-center gap-1.5 text-sm font-medium text-slate-700 mb-1.5">
                   <Shield className="w-4 h-4 text-slate-400" />
-                  Perfil de Acesso
+                  Nível
                 </label>
                 <select
-                  value={approveProfileId}
-                  onChange={(e) => setApproveProfileId(e.target.value)}
+                  value={approveLevel}
+                  onChange={(e) => setApproveLevel(e.target.value)}
                   className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  <option value="">Sem perfil (permissões individuais)</option>
-                  {accessProfiles.map((ap) => <option key={ap.id} value={ap.id}>{ap.name}</option>)}
+                  {LEVELS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
                 </select>
               </div>
             </div>

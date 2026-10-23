@@ -3,6 +3,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Users as UsersIcon, Plus, CreditCard as Edit, Lock, UserCheck, UserX, AlertCircle, Shield, Hash, KeyRound } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import UserAreas from '../components/UserAreas';
+import { LEVELS, levelLabel } from '../lib/access';
 
 interface User {
   id: string;
@@ -13,6 +15,7 @@ interface User {
   active: boolean;
   password_reset_required: boolean;
   access_profile_id: string | null;
+  access_level: string | null;
   has_pin: boolean;
   units: { name: string; id: string } | null;
   departments: { name: string; id: string } | null;
@@ -21,14 +24,13 @@ interface User {
 
 interface Unit { id: string; name: string }
 interface Department { id: string; name: string }
-interface AccessProfile { id: string; name: string; color: string; role: string }
 
 export default function Users() {
   const { profile } = useAuth();
+  const isAdmin = profile?.role === 'Admin';
   const [users, setUsers] = useState<User[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [accessProfiles, setAccessProfiles] = useState<AccessProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -49,7 +51,7 @@ export default function Users() {
     username: '',
     unit_id: '',
     department_id: '',
-    access_profile_id: '',
+    access_level: 'colaborador',
     password: '',
   });
 
@@ -57,17 +59,15 @@ export default function Users() {
 
   const loadData = async () => {
     try {
-      const [usersRes, unitsRes, depsRes, profilesRes] = await Promise.all([
+      const [usersRes, unitsRes, depsRes] = await Promise.all([
         supabase.from('profiles').select('*, units(name, id), departments(name, id)').order('created_at', { ascending: false }),
         supabase.from('units').select('id, name').eq('active', true).order('name'),
         supabase.from('departments').select('id, name').eq('active', true).order('name'),
-        supabase.from('access_profiles').select('id, name, color, role').eq('active', true).order('name'),
       ]);
 
       if (usersRes.data) setUsers(usersRes.data as any);
       if (unitsRes.data) setUnits(unitsRes.data);
       if (depsRes.data) setDepartments(depsRes.data);
-      if (profilesRes.data) setAccessProfiles(profilesRes.data);
     } catch (err) {
       console.error('Error loading data:', err);
     } finally {
@@ -81,67 +81,36 @@ export default function Users() {
     setSubmitting(true);
 
     try {
-      // Derive role from the selected access profile
-      const selectedProfile = accessProfiles.find(ap => ap.id === formData.access_profile_id);
-      const derivedRole = selectedProfile?.role || 'Staff';
-
       if (editingUser) {
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update({
-            full_name: formData.full_name,
-            username: formData.username || null,
-            role: derivedRole,
-            unit_id: formData.unit_id || null,
-            department_id: formData.department_id || null,
-            access_profile_id: formData.access_profile_id || null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', editingUser.id);
-
-        if (updateError) throw updateError;
-
-        await supabase.from('audit_logs').insert({
-          user_id: profile?.id,
-          action: 'update_user',
-          entity: 'profiles',
-          entity_id: editingUser.id,
-          changes: { ...formData, role: derivedRole },
+        if (isAdmin) {
+          const { error: updateError } = await supabase
+            .from('profiles')
+            .update({ full_name: formData.full_name, username: formData.username || null, updated_at: new Date().toISOString() })
+            .eq('id', editingUser.id);
+          if (updateError) throw updateError;
+        }
+        const { error: accErr } = await supabase.rpc('set_user_access', {
+          p_user: editingUser.id,
+          p_unit: formData.unit_id || null,
+          p_department: formData.department_id || null,
+          p_level: formData.access_level,
         });
+        if (accErr) throw accErr;
       } else {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-        const response = await fetch(`${supabaseUrl}/functions/v1/create-admin-user`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${supabaseAnonKey}`,
-            'apikey': supabaseAnonKey,
-          },
-          body: JSON.stringify({
+        const { data: result, error: fnErr } = await supabase.functions.invoke('create-admin-user', {
+          body: {
             email: formData.email,
             password: formData.password,
             full_name: formData.full_name,
             username: formData.username || null,
-            role: derivedRole,
+            access_level: formData.access_level,
             unit_id: formData.unit_id || null,
             department_id: formData.department_id || null,
-            access_profile_id: formData.access_profile_id || null,
-            created_by: profile?.id,
-          }),
+          },
         });
-
-        const result = await response.json();
-        if (!result.success) throw new Error(result.error || 'Failed to create user');
-
-        await supabase.from('audit_logs').insert({
-          user_id: profile?.id,
-          action: 'create_user',
-          entity: 'profiles',
-          entity_id: result.user_id,
-          changes: { email: formData.email, role: derivedRole },
-        });
+        let msg = result?.error as string | undefined;
+        if (fnErr && !msg) { try { msg = (await (fnErr as any).context?.json?.())?.error; } catch { /* */ } msg = msg ?? fnErr.message; }
+        if (msg || !result?.success) throw new Error(msg || 'Erro ao criar utilizador');
       }
 
       resetForm();
@@ -154,7 +123,7 @@ export default function Users() {
   };
 
   const resetForm = () => {
-    setFormData({ email: '', full_name: '', username: '', unit_id: '', department_id: '', access_profile_id: '', password: '' });
+    setFormData({ email: '', full_name: '', username: '', unit_id: '', department_id: '', access_level: 'colaborador', password: '' });
     setShowForm(false);
     setEditingUser(null);
     setError('');
@@ -187,27 +156,19 @@ export default function Users() {
 
   const submitPasswordReset = async () => {
     if (!pwModal) return;
-    if (newPw.length < 6) { setPwError('A palavra-passe deve ter pelo menos 6 caracteres.'); return; }
+    if (newPw.length < 8) { setPwError('A palavra-passe deve ter pelo menos 8 caracteres.'); return; }
     if (newPw !== confirmPw) { setPwError('As palavras-passe não coincidem.'); return; }
     setPwLoading(true);
     setPwError('');
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      const res = await fetch(`${supabaseUrl}/functions/v1/admin-reset-password`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabaseAnonKey}`,
-          'Apikey': supabaseAnonKey,
-        },
-        body: JSON.stringify({
-          user_id: pwModal.id,
-          new_password: newPw,
-          admin_id: profile?.id,
-        }),
+      const { data: result, error: fnErr } = await supabase.functions.invoke('admin-reset-password', {
+        body: { user_id: pwModal.id, new_password: newPw },
       });
-      const result = await res.json();
+      if (fnErr && !result?.error) {
+        let m: string | undefined;
+        try { m = (await (fnErr as any).context?.json?.())?.error; } catch { /* */ }
+        throw new Error(m ?? fnErr.message);
+      }
       if (!result.success) throw new Error(result.error || 'Erro ao redefinir palavra-passe');
       setPwModal(null);
       setNewPw('');
@@ -243,7 +204,7 @@ export default function Users() {
       username: user.username || '',
       unit_id: user.units?.id || '',
       department_id: user.departments?.id || '',
-      access_profile_id: user.access_profile_id || '',
+      access_level: user.access_level || (user.role === 'Admin' ? 'admin' : user.role === 'Chefe' ? 'responsavel' : 'colaborador'),
       password: '',
     });
     setShowForm(true);
@@ -251,7 +212,7 @@ export default function Users() {
 
   const openNew = () => {
     setEditingUser(null);
-    setFormData({ email: '', full_name: '', username: '', unit_id: '', department_id: '', access_profile_id: '', password: '' });
+    setFormData({ email: '', full_name: '', username: '', unit_id: isAdmin ? '' : profile?.unit_id || '', department_id: '', access_level: 'colaborador', password: '' });
     setError('');
     setShowForm(true);
   };
@@ -272,16 +233,18 @@ export default function Users() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold text-slate-800">Utilizadores</h1>
-          <p className="text-slate-600 mt-2">Gerir utilizadores e permissões do sistema</p>
+          <p className="text-slate-600 mt-2">Cada pessoa tem uma unidade, uma equipa e um nível. As áreas a que tem acesso vêm da grelha de níveis.</p>
         </div>
         <div className="flex gap-3">
-          <Link
-            to="/access-profiles"
-            className="flex items-center gap-2 bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg transition"
-          >
-            <Shield className="w-4 h-4" />
-            <span>Perfis de Acesso</span>
-          </Link>
+          {isAdmin && (
+            <Link
+              to="/access-profiles"
+              className="flex items-center gap-2 bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg transition"
+            >
+              <Shield className="w-4 h-4" />
+              <span>Níveis de Acesso</span>
+            </Link>
+          )}
           <button
             onClick={openNew}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
@@ -324,6 +287,7 @@ export default function Users() {
                 <input
                   type="text"
                   required
+                  disabled={!!editingUser && !isAdmin}
                   value={formData.full_name}
                   onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -344,6 +308,7 @@ export default function Users() {
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Unidade</label>
                 <select
+                  disabled={!isAdmin}
                   value={formData.unit_id}
                   onChange={(e) => setFormData({ ...formData, unit_id: e.target.value })}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -354,40 +319,30 @@ export default function Users() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Departamento</label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Equipa</label>
                 <select
                   value={formData.department_id}
                   onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  <option value="">Selecionar departamento</option>
+                  <option value="">Sem equipa</option>
                   {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Perfil de Acesso *</label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Nível *</label>
                 <select
                   required
-                  value={formData.access_profile_id}
-                  onChange={(e) => setFormData({ ...formData, access_profile_id: e.target.value })}
+                  value={formData.access_level}
+                  onChange={(e) => setFormData({ ...formData, access_level: e.target.value })}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  <option value="">Selecionar perfil</option>
-                  {accessProfiles.map((ap) => (
-                    <option key={ap.id} value={ap.id}>
-                      {ap.name} ({ap.role})
-                    </option>
+                  {LEVELS.filter((l) => isAdmin || l.value === 'colaborador' || l.value === 'responsavel').map((l) => (
+                    <option key={l.value} value={l.value}>{l.label}</option>
                   ))}
                 </select>
-                {formData.access_profile_id && (() => {
-                  const ap = accessProfiles.find(p => p.id === formData.access_profile_id);
-                  return ap ? (
-                    <p className="text-xs text-slate-500 mt-1">
-                      Função atribuída automaticamente: <strong>{ap.role}</strong>
-                    </p>
-                  ) : null;
-                })()}
+                <p className="text-xs text-slate-500 mt-1">{LEVELS.find((l) => l.value === formData.access_level)?.hint}</p>
               </div>
 
               {!editingUser && (
@@ -402,11 +357,13 @@ export default function Users() {
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Min. 6 caracteres"
+                    placeholder="Mín. 8 caracteres"
                   />
                 </div>
               )}
             </div>
+
+            {editingUser && <UserAreas userId={editingUser.id} canEdit={isAdmin || editingUser.id !== profile?.id} isAdmin={isAdmin} />}
 
             <div className="flex gap-3 pt-4">
               <button
@@ -435,9 +392,9 @@ export default function Users() {
               <tr>
                 <th className="text-left px-6 py-4 text-sm font-semibold text-slate-700">Nome</th>
                 <th className="text-left px-6 py-4 text-sm font-semibold text-slate-700">Utilizador</th>
-                <th className="text-left px-6 py-4 text-sm font-semibold text-slate-700">Perfil de Acesso</th>
+                <th className="text-left px-6 py-4 text-sm font-semibold text-slate-700">Nível</th>
                 <th className="text-left px-6 py-4 text-sm font-semibold text-slate-700">Unidade</th>
-                <th className="text-left px-6 py-4 text-sm font-semibold text-slate-700">Departamento</th>
+                <th className="text-left px-6 py-4 text-sm font-semibold text-slate-700">Equipa</th>
                 <th className="text-left px-6 py-4 text-sm font-semibold text-slate-700">PIN</th>
                 <th className="text-left px-6 py-4 text-sm font-semibold text-slate-700">Estado</th>
                 <th className="text-right px-6 py-4 text-sm font-semibold text-slate-700">Ações</th>
@@ -453,7 +410,6 @@ export default function Users() {
                 </tr>
               ) : (
                 users.map((user) => {
-                  const ap = accessProfiles.find((p) => p.id === user.access_profile_id);
                   return (
                     <tr key={user.id} className="hover:bg-slate-50 transition">
                       <td className="px-6 py-4">
@@ -467,31 +423,20 @@ export default function Users() {
                         {user.username || <span className="text-slate-300">—</span>}
                       </td>
                       <td className="px-6 py-4">
-                        {ap ? (
-                          <div className="flex items-center gap-2">
-                            <span
-                              className="inline-flex px-2.5 py-1 rounded-full text-xs font-medium text-white"
-                              style={{ backgroundColor: ap.color }}
-                            >
-                              {ap.name}
-                            </span>
-                            <span className={`text-xs font-medium ${
-                              ap.role === 'Admin' ? 'text-red-600' :
-                              ap.role === 'Chefe' ? 'text-amber-700' :
-                              'text-slate-500'
-                            }`}>
-                              {ap.role}
-                            </span>
-                          </div>
+                        {user.access_level ? (
+                          <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${
+                            user.access_level === 'admin' ? 'bg-red-50 text-red-700' :
+                            user.access_level === 'gerente' ? 'bg-violet-50 text-violet-700' :
+                            user.access_level === 'responsavel' ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-700'
+                          }`}>{levelLabel(user.access_level)}</span>
                         ) : (
                           <span className="inline-flex items-center gap-1 text-xs text-amber-600 font-medium">
-                            <AlertCircle className="w-3 h-3" />
-                            Sem perfil
+                            <AlertCircle className="w-3 h-3" /> Sem nível
                           </span>
                         )}
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600">{user.units?.name || '—'}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{user.departments?.name || '—'}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{user.departments?.name || <span className="text-amber-600">Sem equipa</span>}</td>
                       <td className="px-6 py-4">
                         {user.has_pin ? (
                           <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium">
@@ -550,8 +495,8 @@ export default function Users() {
               type="password"
               value={newPw}
               onChange={(e) => setNewPw(e.target.value)}
-              placeholder="Nova palavra-passe (min. 6)"
-              minLength={6}
+              placeholder="Nova palavra-passe (mín. 8)"
+              minLength={8}
               className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-3"
             />
             <input

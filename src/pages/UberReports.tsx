@@ -34,7 +34,7 @@ const fmtDate = (d: string) => d.split('-').reverse().join('/');
 const fmtTs = (t: string | null) => (t ? new Date(t).toLocaleString('pt-PT', { timeZone: 'Europe/Lisbon' }) : '—');
 
 export default function UberReports() {
-  const { profile } = useAuth();
+  const { profile, hasPermission } = useAuth();
   const [reqs, setReqs] = useState<Req[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -114,7 +114,7 @@ export default function UberReports() {
     setMsg({ ok: true, text: 'Ligação à Uber OK.' });
   };
 
-  if (profile && !['Admin', 'Chefe'].includes(profile.role)) {
+  if (profile && !hasPermission('uber')) {
     return <div className="p-6 text-slate-600">Sem acesso.</div>;
   }
 

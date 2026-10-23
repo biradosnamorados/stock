@@ -41,7 +41,7 @@ interface AuthContextType {
   loading: boolean;
   permissions: ModulePermissions;
   showInactivityPrompt: boolean;
-  hasPermission: (moduleCode: string, actionCode: string) => boolean;
+  hasPermission: (moduleCode: string, actionCode?: string) => boolean;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
   renewSession: () => void;
@@ -156,64 +156,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const loadPermissions = async (userId: string, role: string, accessProfileId: string | null) => {
+  // Áreas a que a pessoa tem acesso (grelha Equipa × Nível + exceções), calculadas na base de dados.
+  // Mantém o formato antigo { modulo: { view: true } } para hasPermission(modulo, 'view').
+  const loadPermissions = async (_userId: string, _role: string, _accessProfileId: string | null) => {
     try {
-      if (role === 'Admin') {
-        const { data: modules } = await supabase
-          .from('system_modules')
-          .select('code')
-          .eq('active', true);
-
-        const { data: actions } = await supabase
-          .from('module_actions')
-          .select('code');
-
-        const adminPermissions: ModulePermissions = {};
-        modules?.forEach((module) => {
-          adminPermissions[module.code] = {};
-          actions?.forEach((action) => {
-            adminPermissions[module.code][action.code] = true;
-          });
-        });
-
-        setPermissions(adminPermissions);
-        return;
-      }
-
-      // If user has an access profile, use profile permissions
-      if (accessProfileId) {
-        const { data } = await supabase.rpc('get_profile_permissions', {
-          p_profile_id: accessProfileId,
-        });
-
-        const permMap: ModulePermissions = {};
-        data?.forEach((perm: any) => {
-          if (!permMap[perm.module_code]) {
-            permMap[perm.module_code] = {};
-          }
-          permMap[perm.module_code][perm.action_code] = perm.granted;
-        });
-
-        setPermissions(permMap);
-        return;
-      }
-
-      // Fallback: individual permissions
-      const { data } = await supabase.rpc('get_complete_user_permissions', {
-        p_user_id: userId,
-      });
-
+      const { data, error } = await supabase.rpc('my_modules');
+      if (error) throw error;
       const permMap: ModulePermissions = {};
-      data?.forEach((perm: any) => {
-        if (!permMap[perm.module_code]) {
-          permMap[perm.module_code] = {};
-        }
-        permMap[perm.module_code][perm.action_code] = perm.granted;
+      ((data as string[]) ?? []).forEach((code) => {
+        permMap[code] = { view: true, create: true, update: true, delete: true, export: true, import: true };
       });
-
       setPermissions(permMap);
     } catch (error) {
       console.error('Error loading permissions:', error);
+      setPermissions({});
     }
   };
 
@@ -241,7 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     resetTimer();
   };
 
-  const hasPermission = (moduleCode: string, actionCode: string): boolean => {
+  const hasPermission = (moduleCode: string, actionCode = 'view'): boolean => {
     if (profile?.role === 'Admin') return true;
     return permissions[moduleCode]?.[actionCode] || false;
   };
