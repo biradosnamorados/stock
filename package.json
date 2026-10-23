@@ -14,6 +14,8 @@
     "@capacitor/android": "^6.2.2",
     "@capacitor/core": "^6.2.2",
     "@capacitor/ios": "^6.2.2",
+    "@capacitor/push-notifications": "^6.0.5",
+    "@capgo/capacitor-native-biometric": "^6.0.4",
     "@supabase/supabase-js": "^2.57.4",
     "date-fns": "^4.1.0",
     "html5-qrcode": "^2.3.8",

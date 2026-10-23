@@ -1,6 +1,6 @@
 // "Hoje": só o que a pessoa tem de fazer, com botões grandes.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { QrCode, Truck, Thermometer, Package, Megaphone, ChevronRight, CheckCircle2, X, RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -27,6 +27,7 @@ export default function MobileHome() {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [open, setOpen] = useState<Notice | null>(null);
   const [loading, setLoading] = useState(true);
+  const [params, setParams] = useSearchParams();
 
   const firstName = (profile?.full_name || '').split(' ')[0];
   const unitId = profile?.unit_id ?? null;
@@ -74,7 +75,7 @@ export default function MobileHome() {
       (po ?? []).forEach((o: any) => list.push({
         key: `po-${o.id}`, title: `Encomenda ${o.suppliers?.name ?? ''} por receber`,
         sub: o.expected_delivery_date ? (o.expected_delivery_date <= today ? 'Entrega prevista hoje' : `Entrega prevista ${fmtDay(o.expected_delivery_date)}`) : 'Sem data prevista',
-        href: '/purchases', tone: 'yellow',
+        href: `/receber?order=${o.id}`, tone: 'yellow',
       }));
     }
     if (hasPermission('internal_orders') && unitId) {
@@ -114,6 +115,16 @@ export default function MobileHome() {
 
   useEffect(() => { load(); }, [load]);
 
+  // vindo de uma notificação: abre logo o aviso
+  const wanted = params.get('aviso');
+  useEffect(() => {
+    if (!wanted || !notices.length) return;
+    const n = notices.find((x) => x.id === wanted);
+    if (n) openNotice(n);
+    setParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted, notices]);
+
   const openNotice = async (n: Notice) => {
     setOpen(n);
     if (n.read) return;
@@ -129,7 +140,7 @@ export default function MobileHome() {
 
   const tiles = useMemo(() => [
     hasPermission('scanner') && { href: '/scanner', label: 'Ler QR', icon: QrCode, color: '#1982C1' },
-    hasPermission('goods_receipts') && { href: '/purchases?tab=rececoes', label: 'Receber mercadoria', icon: Truck, color: '#015939' },
+    hasPermission('goods_receipts') && { href: '/receber', label: 'Receber mercadoria', icon: Truck, color: '#015939' },
     hasPermission('haccp') && { href: '/haccp', label: 'Registo HACCP', icon: Thermometer, color: '#B3141F' },
     hasPermission('internal_orders') && { href: '/internal-orders', label: 'Pedido ao CDP', icon: Package, color: '#8A6A00' },
     hasPermission('notices') && { href: '/avisos/novo', label: 'Enviar aviso', icon: Megaphone, color: '#015939' },

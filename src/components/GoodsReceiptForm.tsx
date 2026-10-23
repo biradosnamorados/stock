@@ -22,6 +22,8 @@ interface GoodsReceiptFormProps {
   onSuccess: () => void;
   /** abrir já com esta encomenda escolhida (botão "Receber" na encomenda) */
   initialOrderId?: string;
+  /** fotos da fatura já tiradas antes de abrir (app: "Receber mercadoria") */
+  initialFiles?: File[];
 }
 
 interface InvoiceRead {
@@ -47,7 +49,7 @@ interface InvoiceRead {
   }>;
 }
 
-export default function GoodsReceiptForm({ onClose, onSuccess, initialOrderId }: GoodsReceiptFormProps) {
+export default function GoodsReceiptForm({ onClose, onSuccess, initialOrderId, initialFiles }: GoodsReceiptFormProps) {
   const { profile } = useAuth();
   const [loading, setLoading] = useState(false);
   const [receiptType, setReceiptType] = useState<'with_order' | 'without_order'>('with_order');
@@ -296,7 +298,7 @@ export default function GoodsReceiptForm({ onClose, onSuccess, initialOrderId }:
   };
 
   // ── fatura: fotos e leitura automática ──
-  const uploadPhotos = async (files: FileList | null) => {
+  const uploadPhotos = async (files: FileList | File[] | null) => {
     if (!files?.length || !profile?.unit_id) return;
     setUploading(true);
     setReadMsg(null);
@@ -319,6 +321,15 @@ export default function GoodsReceiptForm({ onClose, onSuccess, initialOrderId }:
       if (photoInputRef.current) photoInputRef.current.value = '';
     }
   };
+
+  // fotos trazidas da câmara antes de abrir o formulário
+  const initialDone = useRef(false);
+  useEffect(() => {
+    if (initialDone.current || !initialFiles?.length || !profile?.unit_id) return;
+    initialDone.current = true;
+    uploadPhotos(initialFiles);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFiles, profile?.unit_id]);
 
   const readInvoice = async () => {
     if (!photos.length) return;
@@ -597,7 +608,7 @@ export default function GoodsReceiptForm({ onClose, onSuccess, initialOrderId }:
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-0 sm:p-4">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-0 sm:p-4 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
       <div className="bg-white sm:rounded-xl shadow-xl max-w-6xl w-full h-full sm:h-auto sm:max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
           <h2 className="text-xl sm:text-2xl font-bold text-slate-800">Receber mercadoria</h2>

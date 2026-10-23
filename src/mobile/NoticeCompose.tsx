@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Send, CheckCircle2, AlertCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { pushNotice } from '../lib/push';
 
 type Mode = 'all' | 'units' | 'teams' | 'people';
 interface Unit { id: string; name: string }
@@ -71,9 +72,11 @@ export default function NoticeCompose() {
     const { data, error } = await supabase.rpc('send_notice', {
       p_title: title, p_message: message, p_audience: audience, p_urgent: urgent, p_require_ack: ack, p_days: days,
     });
+    if (error) { setBusy(false); return setMsg({ ok: false, text: error.message }); }
+    const push = (data as any)?.id ? await pushNotice((data as any).id) : null;
     setBusy(false);
-    if (error) return setMsg({ ok: false, text: error.message });
-    setMsg({ ok: true, text: `Aviso enviado a ${(data as any)?.recipients ?? count} pessoa(s).` });
+    const n = (data as any)?.recipients ?? count;
+    setMsg({ ok: true, text: `Aviso enviado a ${n} pessoa${n === 1 ? '' : 's'}${push?.sent ? ` · notificação em ${push.sent} telemóve${push.sent === 1 ? 'l' : 'is'}` : ''}.` });
     setTitle(''); setMessage(''); setUrgent(false); setAck(false);
   };
 
@@ -143,7 +146,7 @@ export default function NoticeCompose() {
         className="h-14 rounded-2xl bg-[#015939] text-white text-[17px] font-extrabold flex items-center justify-center gap-2 disabled:opacity-40">
         <Send className="w-5 h-5" /> {busy ? 'A enviar…' : count ? `Enviar a ${count} pessoa${count === 1 ? '' : 's'}` : 'Enviar'}
       </button>
-      <p className="text-[12px] text-[#5B635E] text-center -mt-2">Por agora o aviso aparece na app e no site. As notificações no telemóvel chegam na próxima versão.</p>
+      <p className="text-[12px] text-[#5B635E] text-center -mt-2">O aviso aparece na app e no site, e chega como notificação a quem tem a app instalada.</p>
     </div>
   );
 }

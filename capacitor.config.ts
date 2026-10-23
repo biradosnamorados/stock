@@ -7,6 +7,7 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   backgroundColor: '#14171a',
   ios: { contentInset: 'automatic' },
+  plugins: { PushNotifications: { presentationOptions: ['badge', 'sound', 'alert'] } },
   android: { allowMixedContent: false },
 };
 

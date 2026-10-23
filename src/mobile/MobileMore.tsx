@@ -1,7 +1,10 @@
 // "Mais": todas as outras áreas a que a pessoa tem acesso, agrupadas como no site.
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronRight, LogOut } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { stopPush } from '../lib/push';
+import { disableFaceId, faceIdEnabled } from './MobileLogin';
 import { buildMenu, canSee } from '../lib/menu';
 import { levelLabel } from '../lib/access';
 
@@ -10,6 +13,7 @@ const OFFICE = new Set(['/cash-closing-report', '/price-analysis', '/products', 
 
 export default function MobileMore() {
   const { profile, hasPermission, signOut } = useAuth();
+  const [faceOn, setFaceOn] = useState(faceIdEnabled);
   const groups = buildMenu()
     .map((g) => ({ ...g, items: g.items.filter((i) => i.href !== '/' && canSee(i, profile, hasPermission)) }))
     .filter((g) => g.items.length > 0);
@@ -47,7 +51,12 @@ export default function MobileMore() {
         </section>
       ))}
 
-      <button onClick={() => signOut()} className="h-14 rounded-2xl border-2 border-[#E8C9CC] bg-white text-[#B3141F] font-extrabold flex items-center justify-center gap-2">
+      {faceOn && (
+        <button onClick={async () => { await disableFaceId(); setFaceOn(false); }} className="h-12 rounded-2xl bg-white border-2 border-[#CFC9BC] font-bold text-[#3E4541]">
+          Desligar o Face ID neste telemóvel
+        </button>
+      )}
+      <button onClick={async () => { await stopPush(); signOut(); }} className="h-14 rounded-2xl border-2 border-[#E8C9CC] bg-white text-[#B3141F] font-extrabold flex items-center justify-center gap-2">
         <LogOut className="w-5 h-5" /> Sair
       </button>
     </div>

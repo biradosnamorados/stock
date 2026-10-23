@@ -6,6 +6,8 @@
 	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>A câmara é usada para ler os QR das etiquetas e fotografar faturas, talões do TPA e fechos de caixa.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Para entrar na app com o Face ID em vez de escrever o PIN.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Para escolher fotos de faturas e talões já guardadas no telemóvel.</string>
 	<key>CFBundleDevelopmentRegion</key>

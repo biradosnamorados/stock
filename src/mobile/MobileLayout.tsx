@@ -2,7 +2,9 @@
 // ecrãs com botões grandes e respeito pelas zonas seguras do iPhone (entalhe e barra inferior).
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Home, QrCode, Wallet, Warehouse, ChefHat, MoreHorizontal, ChevronLeft } from 'lucide-react';
+import { useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { startPush } from '../lib/push';
 
 const ROOTS = ['/', '/scanner', '/cash-closing', '/stock', '/production', '/mais'];
 
@@ -10,6 +12,9 @@ export default function MobileLayout() {
   const { hasPermission } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+
+  // notificações no iPhone (pede autorização uma vez)
+  useEffect(() => { startPush((route) => navigate(route)); }, [navigate]);
 
   // 3.º separador conforme o trabalho da pessoa
   const third = hasPermission('cash_closing')

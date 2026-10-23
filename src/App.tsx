@@ -26,6 +26,9 @@ import Register from './pages/Register';
 import UpdatePassword from './pages/UpdatePassword';
 import PendingRegistrations from './pages/PendingRegistrations';
 import CashClosing from './pages/CashClosing';
+import MobileCashClosing from './mobile/MobileCashClosing';
+import MobileLogin from './mobile/MobileLogin';
+import MobileReceive from './mobile/MobileReceive';
 import CashmaticSettings from './pages/CashmaticSettings';
 import CashClosingReport from './pages/CashClosingReport';
 import UberReports from './pages/UberReports';
@@ -43,7 +46,7 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <Routes>
-          <Route path="/login" element={<Login />} />
+          <Route path="/login" element={APP ? <MobileLogin /> : <Login />} />
           <Route path="/pin-login" element={<PinLogin />} />
           <Route path="/register" element={<Register />} />
           <Route path="/update-password" element={<UpdatePassword />} />
@@ -87,7 +90,8 @@ function App() {
             <Route path="haccp" element={<Haccp />} />
             <Route path="mandatory-tasks" element={<MandatoryTasks />} />
             <Route path="pending-registrations" element={<PendingRegistrations />} />
-            <Route path="cash-closing" element={<CashClosing />} />
+            <Route path="cash-closing" element={APP ? <MobileCashClosing /> : <CashClosing />} />
+            <Route path="receber" element={<MobileReceive />} />
             <Route path="cashmatic-settings" element={<CashmaticSettings />} />
             <Route path="cash-closing-report" element={<CashClosingReport />} />
             <Route path="uber" element={<UberReports />} />
