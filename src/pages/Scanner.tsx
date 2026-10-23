@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Html5Qrcode } from 'html5-qrcode';
 import { supabase } from '../lib/supabase';
+import { isApp } from '../lib/native';
 import { QrCode, Camera, X, Search, PackageOpen, CheckCircle2, Trash2, Ban, Undo2, AlertTriangle, MapPin, History, RotateCcw } from 'lucide-react';
 
 interface Pkg {
@@ -88,6 +89,7 @@ export default function Scanner() {
   useEffect(() => {
     const c = params.get('code');
     if (c) { lookup(c); setParams({}, { replace: true }); }
+    else if (isApp()) startCamera(); // na app abre logo a câmara
     else inputRef.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { buildMenu, type NavItem, type NavGroup } from '../lib/menu';
 import { supabase } from '../lib/supabase';
 import { LayoutDashboard, Package, PackageOpen, Warehouse, ShoppingCart, Truck as TruckIcon, ClipboardList, QrCode, LogOut, Menu, X, Settings, Users, Building2, Mail, ChevronDown, ChevronRight, TrendingUp, Upload, ChefHat, ClipboardCheck, ShieldCheck, CheckSquare, Shield, UserPlus, Wallet, Banknote, BarChart3, Bike } from 'lucide-react';
 
@@ -22,59 +23,7 @@ export default function Layout() {
     fetchPending();
   }, [profile?.role]);
 
-  type NavItem = {
-    name: string;
-    href: string;
-    icon: any;
-    moduleCode: string;
-    anyModules?: string[];
-    units?: string[];
-    roles?: string[];
-    alsoFor?: { roles?: string[]; departments?: string[] };
-    badge?: number;
-  };
-  type NavGroup = { key: string; name: string; icon: any; items: NavItem[] };
-
-  // Menu organizado por área. Um grupo com só uma opção visível aparece direto, sem submenu.
-  const groups: NavGroup[] = [
-    { key: 'inicio', name: 'Início', icon: LayoutDashboard, items: [
-      { name: 'Painel', href: '/', icon: LayoutDashboard, moduleCode: 'dashboard' },
-      { name: 'Ler QR', href: '/scanner', icon: QrCode, moduleCode: 'scanner' },
-    ] },
-    { key: 'caixa', name: 'Caixa', icon: Wallet, items: [
-      { name: 'Fecho de Caixa', href: '/cash-closing', icon: Wallet, moduleCode: 'cash_closing' },
-      { name: 'Histórico de Fechos', href: '/cash-closing-report', icon: BarChart3, moduleCode: 'cash_closing_manage' },
-      { name: 'Uber Eats', href: '/uber', icon: Bike, moduleCode: 'uber' },
-    ] },
-    { key: 'encomendas', name: 'Encomendas', icon: TruckIcon, items: [
-      { name: 'Pedidos ao CDP / CDO', href: '/internal-orders', icon: TruckIcon, moduleCode: 'internal_orders' },
-      { name: 'Compras a Fornecedores', href: '/purchases', icon: ShoppingCart, moduleCode: 'purchase_orders', anyModules: ['purchase_orders', 'goods_receipts'] },
-    ] },
-    { key: 'stock', name: 'Stock', icon: Warehouse, items: [
-      { name: 'Stock', href: '/stock', icon: Warehouse, moduleCode: 'stock' },
-      { name: 'Contagem de Stock', href: '/stock-counts', icon: ClipboardCheck, moduleCode: 'stock_counts' },
-      { name: 'Análise de Preços', href: '/price-analysis', icon: TrendingUp, moduleCode: 'price_analysis' },
-    ] },
-    { key: 'producao', name: 'Produção', icon: ChefHat, items: [
-      { name: 'Receitas', href: '/recipes', icon: ChefHat, moduleCode: 'recipes', units: ['Centro de Produção'] },
-      { name: 'Produção', href: '/production', icon: Package, moduleCode: 'production', units: ['Centro de Produção'] },
-      { name: 'Embalamento e Etiquetas', href: '/packaging', icon: PackageOpen, moduleCode: 'packaging', units: ['Centro de Produção'] },
-    ] },
-    { key: 'qualidade', name: 'Qualidade', icon: ShieldCheck, items: [
-      { name: 'HACCP', href: '/haccp', icon: ShieldCheck, moduleCode: 'haccp' },
-      { name: 'Tarefas Obrigatórias', href: '/mandatory-tasks', icon: CheckSquare, moduleCode: 'mandatory_tasks' },
-    ] },
-    { key: 'ajustes', name: 'Ajustes', icon: Settings, items: [
-      { name: 'Produtos', href: '/products', icon: Package, moduleCode: 'products' },
-      { name: 'Fornecedores', href: '/suppliers', icon: Building2, moduleCode: 'suppliers' },
-      { name: 'Utilizadores', href: '/users', icon: Users, moduleCode: 'users' },
-      { name: 'Pedidos de Registo', href: '/pending-registrations', icon: UserPlus, moduleCode: 'users', badge: pendingCount },
-      { name: 'Níveis de Acesso', href: '/access-profiles', icon: Shield, moduleCode: 'access_rules' },
-      { name: 'Máquina de Trocos', href: '/cashmatic-settings', icon: Banknote, moduleCode: 'cashmatic_settings' },
-      { name: 'Email (SMTP)', href: '/smtp-settings', icon: Mail, moduleCode: 'smtp_settings' },
-      { name: 'Importar Dados', href: '/import', icon: Upload, moduleCode: 'import' },
-    ] },
-  ];
+  const groups = buildMenu(pendingCount);
 
   const hasAccess = (item: NavItem) => {
     if (!profile) return false;

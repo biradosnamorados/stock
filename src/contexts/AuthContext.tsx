@@ -29,6 +29,7 @@ interface Profile {
   password_reset_required: boolean;
   account_status: 'active' | 'pending_approval' | 'rejected';
   access_profile_id: string | null;
+  access_level?: 'colaborador' | 'responsavel' | 'gerente' | 'admin' | null;
   has_pin: boolean;
   units?: Unit | null;
   departments?: Department | null;

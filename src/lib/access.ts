@@ -13,6 +13,7 @@ export const AREA_GROUPS: { name: string; areas: { code: string; label: string }
   { name: 'Início', areas: [
     { code: 'dashboard', label: 'Painel' },
     { code: 'scanner', label: 'Ler QR' },
+    { code: 'notices', label: 'Enviar avisos' },
   ] },
   { name: 'Caixa', areas: [
     { code: 'cash_closing', label: 'Fecho de caixa (cego)' },

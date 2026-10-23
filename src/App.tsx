@@ -30,6 +30,13 @@ import CashmaticSettings from './pages/CashmaticSettings';
 import CashClosingReport from './pages/CashClosingReport';
 import UberReports from './pages/UberReports';
 import Purchases from './pages/Purchases';
+import MobileLayout from './mobile/MobileLayout';
+import MobileHome from './mobile/MobileHome';
+import MobileMore from './mobile/MobileMore';
+import NoticeCompose from './mobile/NoticeCompose';
+import { isApp } from './lib/native';
+
+const APP = isApp();
 
 function App() {
   return (
@@ -52,11 +59,13 @@ function App() {
             path="/"
             element={
               <ProtectedRoute>
-                <Layout />
+                {APP ? <MobileLayout /> : <Layout />}
               </ProtectedRoute>
             }
           >
-            <Route index element={<Dashboard />} />
+            <Route index element={APP ? <MobileHome /> : <Dashboard />} />
+            <Route path="mais" element={<MobileMore />} />
+            <Route path="avisos/novo" element={<NoticeCompose />} />
             <Route path="production" element={<Production />} />
             <Route path="packaging" element={<Packaging />} />
             <Route path="stock" element={<Stock />} />
