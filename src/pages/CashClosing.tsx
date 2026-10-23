@@ -350,8 +350,28 @@ export default function CashClosing() {
     return round2(txs.filter((t) => t.success !== false && t.end_type === 'normal').reduce((s, t) => s + (t.income_cents ?? 0), 0) / 100);
   }, [txs, closing?.cashmatic_total]);
 
+  // Total dos pedidos Uber Eats do dia segundo a própria Uber (só Admin/Gerente têm acesso;
+  // a Uber só fecha os dados uns dias depois, por isso pode ainda não existir).
+  const [uberTotal, setUberTotal] = useState<{ total: number; count: number } | null>(null);
+  useEffect(() => {
+    setUberTotal(null);
+    if (!showTheo || !unitId || !date) return;
+    supabase.from('uber_orders').select('total_order, order_status').eq('unit_id', unitId).eq('order_date', date)
+      .then(({ data }) => {
+        const rows = (data ?? []).filter((r: any) => r.order_status === 'Completed');
+        if (rows.length) setUberTotal({ total: round2(rows.reduce((s: number, r: any) => s + Number(r.total_order), 0)), count: rows.length });
+      });
+  }, [showTheo, unitId, date]);
+  const uberDeclared = useMemo(
+    () => round2(lines.filter((l) => /uber/i.test(l.payment_method)).reduce((s, l) => s + num(l.declared), 0)),
+    [lines],
+  );
+
   const alerts = useMemo(() => {
     const a: string[] = [];
+    if (uberTotal && Math.abs(uberTotal.total - uberDeclared) > 0.05) {
+      a.push(`Uber apurado (${eur(uberDeclared)}) não bate com o relatório da Uber (${eur(uberTotal.total)} em ${uberTotal.count} pedidos)`);
+    }
     for (const r of summary.rows) {
       if (r.family === 'comissoes') continue;
       if (Math.abs(r.diff) > TOLERANCE) a.push(`${FAMILY_LABEL[r.family]}: diferença de ${eur(r.diff)}`);
@@ -366,7 +386,7 @@ export default function CashClosing() {
       }
     }
     return a;
-  }, [summary, cashmaticTotal]);
+  }, [summary, cashmaticTotal, uberTotal, uberDeclared]);
 
   // ── edição de linhas ──
   const updateLine = (key: string, patch: Partial<Line>) => {

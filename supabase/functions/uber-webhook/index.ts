@@ -82,12 +82,17 @@ Deno.serve(async (req) => {
         if (!res.ok) throw new Error(`Download ${res.status} (${s.section_id})`);
         const rows = parseCsv(await res.text());
         if (rows.length < 2) continue;
-        const headers = rows[0].map((h) => h.trim());
+        // Os CSV da Uber trazem uma linha de descrições e só depois a linha com os nomes curtos
+        // ("Order ID", "Store UUID"…). Usamos a dos nomes curtos.
+        const second = rows[1].map((h) => h.trim());
+        const twoHeaders = second.includes("Order ID") || second.includes("Store UUID") || second.includes("Workflow ID");
+        const headers = (twoHeaders ? second : rows[0]).map((h) => h.trim());
+        const body = rows.slice(twoHeaders ? 2 : 1);
         const keep = headers.map((h) => !PII.test(h));
-        const out = rows.slice(1).map((r, i) => {
+        const out = body.map((r, i) => {
           const data: Record<string, string> = {};
           headers.forEach((h, j) => { if (keep[j] && h) data[h] = (r[j] ?? "").trim(); });
-          const store = pick(data, /store.*(uuid|id)|loja.*id/i);
+          const store = data["Store UUID"] ?? pick(data, /store.*uuid/i);
           return {
             request_id: match?.id ?? null,
             job_id: jobId,
@@ -95,7 +100,7 @@ Deno.serve(async (req) => {
             section_id: s.section_id ?? "0",
             row_num: i + 1,
             store_uuid: store && UUID.test(store) ? store : null,
-            order_id: pick(data, /^(order.?id|workflow.?id|id do pedido|pedido)$/i) ?? pick(data, /order.*id|pedido/i) ?? null,
+            order_id: data["Order ID"] ?? pick(data, /^(order.?id|id do pedido|pedido)$/i) ?? null,
             data,
           };
         });
