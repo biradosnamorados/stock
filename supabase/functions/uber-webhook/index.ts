@@ -52,7 +52,8 @@ Deno.serve(async (req) => {
   let payload: any = {};
   try { payload = JSON.parse(raw); } catch { return new Response("bad json", { status: 400 }); }
 
-  const secret = Deno.env.get("UBER_CLIENT_SECRET") ?? "";
+  // chave própria do webhook, se a Uber pedir uma; senão o Client Secret
+  const secret = Deno.env.get("UBER_WEBHOOK_SECRET") || Deno.env.get("UBER_CLIENT_SECRET") || "";
   const got = (req.headers.get("x-uber-signature") ?? "").toLowerCase();
   const signatureOk = !!secret && !!got && got === (await hmacHex(secret, raw));
 
