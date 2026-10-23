@@ -31,6 +31,7 @@ import PendingRegistrations from './pages/PendingRegistrations';
 import CashClosing from './pages/CashClosing';
 import CashmaticSettings from './pages/CashmaticSettings';
 import CashClosingReport from './pages/CashClosingReport';
+import UberReports from './pages/UberReports';
 
 function App() {
   return (
@@ -81,6 +82,7 @@ function App() {
             <Route path="cash-closing" element={<CashClosing />} />
             <Route path="cashmatic-settings" element={<CashmaticSettings />} />
             <Route path="cash-closing-report" element={<CashClosingReport />} />
+            <Route path="uber" element={<UberReports />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

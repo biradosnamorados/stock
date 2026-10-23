@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { LayoutDashboard, Package, PackageOpen, Warehouse, ShoppingCart, Truck as TruckIcon, ClipboardList, QrCode, LogOut, Menu, X, Settings, Users, Building2, Mail, ChevronDown, ChevronRight, TrendingUp, Upload, ChefHat, ClipboardCheck, ShieldCheck, CheckSquare, Shield, UserPlus, Wallet, Banknote, BarChart3 } from 'lucide-react';
+import { LayoutDashboard, Package, PackageOpen, Warehouse, ShoppingCart, Truck as TruckIcon, ClipboardList, QrCode, LogOut, Menu, X, Settings, Users, Building2, Mail, ChevronDown, ChevronRight, TrendingUp, Upload, ChefHat, ClipboardCheck, ShieldCheck, CheckSquare, Shield, UserPlus, Wallet, Banknote, BarChart3, Bike } from 'lucide-react';
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -35,6 +35,7 @@ export default function Layout() {
     // Fecho de caixa: qualquer pessoa da equipa de Sala, gerentes (Chefe) e Admin
     { name: 'Fecho de Caixa', href: '/cash-closing', icon: Wallet, moduleCode: 'cash_closing', alsoFor: { roles: ['Chefe'], departments: ['Sala'] } },
     { name: 'Relatório de Fechos', href: '/cash-closing-report', icon: BarChart3, moduleCode: 'cash_closing', roles: ['Admin', 'Chefe'] },
+    { name: 'Uber Eats', href: '/uber', icon: Bike, moduleCode: 'cash_closing', roles: ['Admin', 'Chefe'] },
     { name: 'Encomendas Internas', href: '/internal-orders', icon: TruckIcon, moduleCode: 'internal_orders' },
     { name: 'Encomendas Fornecedores', href: '/purchase-orders', icon: ShoppingCart, moduleCode: 'purchase_orders' },
     { name: 'Receção Mercadoria', href: '/goods-receipts', icon: ClipboardList, moduleCode: 'goods_receipts' },
